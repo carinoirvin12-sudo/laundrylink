@@ -1,0 +1,29 @@
+
+{
+  "name": "laundrylink-backend",
+  "version": "1.0.0",
+  "description": "LaundryLink REST API for laundry management",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "seed": "node src/seed/seed.js"
+  },
+  "keywords": [
+    "laundry",
+    "express",
+    "mongodb",
+    "mongoose"
+  ],
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "mongoose": "^9.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment credentials
+.env
+**/.env
+.env.local
+**/.env.local
+
+# MongoDB backups
+backups/
+**/backups/
+
+# Temporary backups
+*.backup
+
+# Build output
+dist/
+**/dist/
+
+# Logs
+*.log
+
+# Other environment files
+.env.*
+!.env.example

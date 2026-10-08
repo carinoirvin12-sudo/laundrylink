@@ -1,0 +1,399 @@
+
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* LAUNDRYLINK THEME */
+
+:root {
+  font-family: Inter, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --app-background: #f8fafc;
+  --app-surface: #ffffff;
+  --app-text: #0f172a;
+  --app-muted: #64748b;
+  --app-border: #e2e8f0;
+
+  --button-hover: #0e7490;
+  --button-hover-text: #ffffff;
+
+  --edit-bg: #f0f9ff;
+  --edit-border: #bae6fd;
+  --edit-text: #0369a1;
+
+  --delete-bg: #fef2f2;
+  --delete-border: #fecaca;
+  --delete-text: #b91c1c;
+
+  background: var(--app-background);
+  color: var(--app-text);
+  color-scheme: light;
+}
+
+html.dark {
+  --app-background: #0b1220;
+  --app-surface: #1e293b;
+  --app-text: #f1f5f9;
+  --app-muted: #94a3b8;
+  --app-border: #334155;
+
+  --edit-bg: #27374d;
+  --edit-border: #475569;
+  --edit-text: #67e8f9;
+
+  --delete-bg: #451a1a;
+  --delete-border: #991b1b;
+  --delete-text: #fca5a5;
+
+  background: var(--app-background);
+  color: var(--app-text);
+  color-scheme: dark;
+}
+
+/* BASE */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--app-background);
+  color: var(--app-text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* SHARED THEME UTILITIES */
+
+.ll-surface {
+  background: var(--app-surface);
+  color: var(--app-text);
+  border-color: var(--app-border);
+}
+
+.ll-muted {
+  color: var(--app-muted);
+}
+
+.ll-border {
+  border-color: var(--app-border);
+}
+
+.ll-accent {
+  color: #0891b2;
+}
+
+.dark .ll-accent {
+  color: #22d3ee;
+}
+
+/* DARK MODE BACKGROUNDS */
+
+.dark main .bg-white {
+  background-color: #1e293b;
+}
+
+.dark main .bg-slate-50 {
+  background-color: #172235;
+}
+
+.dark main .bg-slate-100 {
+  background-color: #26364c;
+}
+
+.dark main .bg-slate-200 {
+  background-color: #334155;
+}
+
+/* DARK MODE TEXT */
+
+.dark main .text-slate-950,
+.dark main .text-slate-900 {
+  color: #f8fafc;
+}
+
+.dark main .text-slate-800,
+.dark main .text-slate-700 {
+  color: #e2e8f0;
+}
+
+.dark main .text-slate-600 {
+  color: #cbd5e1;
+}
+
+.dark main .text-slate-500 {
+  color: #a5b4c8;
+}
+
+.dark main .text-slate-400 {
+  color: #94a3b8;
+}
+
+/* DARK MODE BORDERS */
+
+.dark main .border-slate-100,
+.dark main .border-slate-200,
+.dark main .border-slate-300 {
+  border-color: #334155;
+}
+
+/* FORM CONTRAST */
+
+.dark main input,
+.dark main select,
+.dark main textarea {
+  background: #172235;
+  color: #f1f5f9;
+  border-color: #475569;
+}
+
+.dark main input::placeholder,
+.dark main textarea::placeholder {
+  color: #94a3b8;
+}
+
+.dark main input:focus,
+.dark main select:focus,
+.dark main textarea:focus {
+  border-color: #22d3ee;
+}
+
+/* TABLE CONTRAST */
+
+.dark main table {
+  color: #f1f5f9;
+}
+
+.dark main thead,
+.dark main tbody tr {
+  border-color: #334155;
+}
+
+.dark main tbody tr:hover {
+  background: #25344a;
+}
+
+/* STATUS BADGES */
+
+.dark main .bg-blue-100 {
+  background-color: #dbeafe;
+}
+
+.dark main .bg-purple-100 {
+  background-color: #ede9fe;
+}
+
+.dark main .bg-green-100 {
+  background-color: #dcfce7;
+}
+
+.dark main .bg-amber-100 {
+  background-color: #fef3c7;
+}
+
+.dark main .bg-red-100 {
+  background-color: #fee2e2;
+}
+
+.dark main .bg-blue-100.text-blue-700 {
+  color: #1d4ed8;
+}
+
+.dark main .bg-purple-100.text-purple-700 {
+  color: #6d28d9;
+}
+
+.dark main .bg-green-100.text-green-700 {
+  color: #15803d;
+}
+
+.dark main .bg-amber-100.text-amber-700 {
+  color: #92400e;
+}
+
+.dark main .bg-red-100.text-red-700 {
+  color: #b91c1c;
+}
+
+/* ===================================
+   SHARED BUTTON DESIGN
+   Services / Machines / Customers
+=================================== */
+
+/* Uniform button height, alignment, and animation */
+
+main button,
+main a[class*="rounded"][class*="px-"],
+header button:not([aria-label]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  text-align: center;
+  gap: 6px;
+
+  min-height: 44px;
+  border-radius: 12px;
+
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+/* Edit buttons:
+   Matches the existing edit button classes
+   on Services and Machines.
+*/
+
+main button[class*="border-cyan-200"],
+main button[class*="border-slate-300"] {
+  background-color: var(--edit-bg) !important;
+  border: 1px solid var(--edit-border) !important;
+  color: var(--edit-text) !important;
+}
+
+/* Delete buttons */
+
+main button[class*="border-red-200"],
+main button[class*="bg-red-50"],
+main button[class*="text-red-600"] {
+  background-color: var(--delete-bg) !important;
+  border: 1px solid var(--delete-border) !important;
+  color: var(--delete-text) !important;
+}
+
+/* ===================================
+   ONE SHARED BLUE HOVER
+
+   Applies equally in LIGHT and DARK.
+   Includes History, Edit, View and
+   other non-destructive page buttons.
+=================================== */
+
+main button:not(:disabled):not([class*="border-red-"]):not([class*="bg-red-"]):not([class*="text-red-"]):hover,
+main a[class*="rounded"][class*="px-"]:not([class*="border-red-"]):not([class*="bg-red-"]):not([class*="text-red-"]):hover,
+header button:not(:disabled):not([aria-label]):hover {
+  background-color: var(--button-hover) !important;
+  border-color: var(--button-hover) !important;
+  color: var(--button-hover-text) !important;
+
+  transform: translateY(-2px);
+  box-shadow: 0 5px 14px rgba(8, 145, 178, 0.25);
+}
+
+/* Nested text/icon also turns white */
+
+main button:not(:disabled):hover > span,
+main button:not(:disabled):hover > svg,
+main a[class*="rounded"][class*="px-"]:hover > span,
+main a[class*="rounded"][class*="px-"]:hover > svg {
+  color: inherit !important;
+}
+
+/* Destructive button hover */
+
+main button[class*="border-red-"]:not(:disabled):hover,
+main button[class*="bg-red-"]:not(:disabled):hover,
+main button[class*="text-red-"]:not(:disabled):hover {
+  background: #991b1b !important;
+  border-color: #ef4444 !important;
+  color: #ffffff !important;
+
+  transform: translateY(-2px);
+  box-shadow: 0 5px 14px rgba(153, 27, 27, 0.22);
+}
+
+/* Disabled states */
+
+main button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Keyboard focus */
+
+main button:focus-visible,
+main a[class*="rounded"][class*="px-"]:focus-visible {
+  outline: 2px solid #22d3ee;
+  outline-offset: 3px;
+}
+
+/* Reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  main button,
+  main a,
+  header button {
+    transition: none !important;
+  }
+
+  main button:hover,
+  main a:hover {
+    transform: none !important;
+  }
+}
+/* CUSTOMER HISTORY BUTTON — LIGHT & DARK MODE */
+
+/* Light Mode */
+html:not(.dark) main a[href^="/customers/"][class*="rounded"] {
+  background-color: #f0f9ff !important;
+  border: 1px solid #bae6fd !important;
+  color: #0369a1 !important;
+}
+
+html.dark main a[href^="/customers/"][class*="rounded"] {
+  background-color: #27374d !important;
+  border: 1px solid #475569 !important;
+  color: #67e8f9 !important;
+}
+
+/* Same blue hover in both modes */
+html main a[href^="/customers/"][class*="rounded"]:hover {
+  background-color: #0e7490 !important;
+  border-color: #22d3ee !important;
+  color: #ffffff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 14px rgba(8, 145, 178, 0.25);
+}
