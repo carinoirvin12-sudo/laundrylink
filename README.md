@@ -733,6 +733,25 @@ The repository contains the frontend and backend applications.
 
 Sensitive `.env` files, installed dependencies, generated builds, and local database backups must not be committed.
 
+### Committing and Pushing Changes
+
+Before publishing your work, update your local branch and review the files you changed:
+
+```bash
+git status
+git pull --rebase origin main
+```
+
+Stage only the files you intend to include, then create and push your commit:
+
+```bash
+git add README.md
+git commit -m "docs: update README"
+git push origin main
+```
+
+If Git reports conflicts during the rebase, resolve them before continuing. Review `git status` before staging so unrelated files are not included in your commit.
+
 The final submission must follow the instructor's repository access and Microsoft Teams submission instructions.
 
 ## 19. Project Status
@@ -761,9 +780,11 @@ Before final submission, complete the group information, add actual screenshots,
 * **MongoDB Atlas:** The cloud-hosted database service used to store application records.
 
 
+## 
+
+
+
 
 **LaundryLink — Simple. Organized. Connected.**
 
 <!-- Documentation-only note: this comment does not affect application behavior. -->
-
-edit ni paul para sa commit nyawk nyawk nyawk  
