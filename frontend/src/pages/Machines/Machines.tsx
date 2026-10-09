@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -6,48 +12,139 @@ import axios from 'axios'
 import api from '../../services/api'
 
 type MachineType = 'washer' | 'dryer'
-type MachineDatabaseStatus = 'active' | 'maintenance'
+type MachineStatus = 'active' | 'maintenance'
+
+type AvailabilityStatus =
+  | 'available'
+  | 'in-use'
+  | 'maintenance'
 
 type Machine = {
   _id: string
   name: string
   type: MachineType
   capacityKg: number
-  status: MachineDatabaseStatus
+  status: MachineStatus
   isBusy?: boolean
   isAvailable?: boolean
+  hasCapacity?: boolean
   availabilityStatus?: string
-  createdAt?: string
+  displayStatus?: string
 }
-
 
 const machineSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(2, 'Machine name must be at least 2 characters')
-    .max(100, 'Machine name cannot exceed 100 characters'),
+    .min(
+      2,
+      'Machine name must be at least 2 characters'
+    )
+    .max(
+      100,
+      'Machine name cannot exceed 100 characters'
+    ),
 
   type: z.enum(['washer', 'dryer']),
 
   capacityKg: z
-    .number()
-    .finite('Enter a valid machine capacity')
+    .number({
+      message: 'Machine capacity is required',
+    })
+    .finite('Enter a valid capacity')
     .min(1, 'Capacity must be at least 1 kg')
     .max(15, 'Capacity cannot exceed 15 kg'),
 
   status: z.enum(['active', 'maintenance']),
 })
 
+type MachineFormData = z.infer<
+  typeof machineSchema
+>
 
-type MachineFormData = z.infer<typeof machineSchema>
+const MACHINE_PRESETS: {
+  name: string
+  type: MachineType
+  capacityKg: number
+}[] = [
+  {
+    name: 'Washer 01',
+    type: 'washer',
+    capacityKg: 15,
+  },
+  {
+    name: 'Washer 02',
+    type: 'washer',
+    capacityKg: 15,
+  },
+  {
+    name: 'Dryer 01',
+    type: 'dryer',
+    capacityKg: 15,
+  },
+  {
+    name: 'Dryer 02',
+    type: 'dryer',
+    capacityKg: 15,
+  },
+]
+
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+): string {
+  if (axios.isAxiosError(error)) {
+    if (error.response?.data?.code === 11000) {
+      return 'Machine name already exists.'
+    }
+
+    const message = error.response?.data?.message
+
+    return typeof message === 'string'
+      ? message
+      : fallback
+  }
+
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return fallback
+}
+
+function getDisplayStatus(
+  machine: Machine
+): AvailabilityStatus {
+  if (machine.status === 'maintenance') {
+    return 'maintenance'
+  }
+
+  if (
+    machine.isBusy === true ||
+    machine.availabilityStatus === 'in-use'
+  ) {
+    return 'in-use'
+  }
+
+  return 'available'
+}
 
 function Machines() {
-  const [machines, setMachines] = useState<Machine[]>([])
+  const [machines, setMachines] =
+    useState<Machine[]>([])
+
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] =
+    useState(false)
+
   const [saving, setSaving] = useState(false)
 
-  const [showForm, setShowForm] = useState(false)
+  const [deletingId, setDeletingId] =
+    useState<string | null>(null)
+
+  const [showForm, setShowForm] =
+    useState(false)
+
   const [editingMachine, setEditingMachine] =
     useState<Machine | null>(null)
 
@@ -58,59 +155,92 @@ function Machines() {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<MachineFormData>({
     resolver: zodResolver(machineSchema),
-
     defaultValues: {
       name: '',
       type: 'washer',
-      capacityKg: 1,
+      capacityKg: 15,
       status: 'active',
     },
   })
 
-  const loadMachines = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError('')
+  // ==========================================
+  // LOAD MACHINE AVAILABILITY
+  // ==========================================
 
-      const response =
-        await api.get('/machines/availability')
+  const loadMachines = useCallback(
+    async (initial = false) => {
+      try {
+        if (initial) {
+          setLoading(true)
+        } else {
+          setRefreshing(true)
+        }
 
-      setMachines(response.data)
-    } catch (error) {
-      setError(
-        getErrorMessage(
-          error,
-          'Unable to load machines.'
+        const response = await api.get<Machine[]>(
+          '/machines/availability'
         )
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+
+        if (!Array.isArray(response.data)) {
+          throw new Error(
+            'Unexpected machines response.'
+          )
+        }
+
+        setMachines(response.data)
+      } catch (err) {
+        setError(
+          getErrorMessage(
+            err,
+            'Unable to load machines.'
+          )
+        )
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    []
+  )
 
   useEffect(() => {
-    loadMachines()
+    void loadMachines(true)
   }, [loadMachines])
 
+  // ==========================================
+  // MACHINE COUNTS
+  // ==========================================
+
   const counts = useMemo(() => {
-    const maintenance = machines.filter(
+    const available = machines.filter(
       (machine) =>
-        machine.status === 'maintenance'
+        getDisplayStatus(machine) ===
+        'available'
     ).length
 
     const inUse = machines.filter(
       (machine) =>
-        machine.status !== 'maintenance' &&
-        machine.isBusy === true
+        getDisplayStatus(machine) ===
+        'in-use'
     ).length
 
-    const available = machines.filter(
+    const maintenance = machines.filter(
       (machine) =>
-        machine.status === 'active' &&
-        machine.isBusy !== true
+        getDisplayStatus(machine) ===
+        'maintenance'
+    ).length
+
+    const washers = machines.filter(
+      (machine) =>
+        machine.type === 'washer'
+    ).length
+
+    const dryers = machines.filter(
+      (machine) =>
+        machine.type === 'dryer'
     ).length
 
     return {
@@ -118,19 +248,27 @@ function Machines() {
       available,
       inUse,
       maintenance,
+      washers,
+      dryers,
     }
   }, [machines])
 
-  const openAddForm = () => {
-    setEditingMachine(null)
+  // ==========================================
+  // FORM HELPERS
+  // ==========================================
 
+  const resetForm = () => {
     reset({
       name: '',
       type: 'washer',
-      capacityKg: 1,
+      capacityKg: 15,
       status: 'active',
     })
+  }
 
+  const openAddForm = () => {
+    setEditingMachine(null)
+    resetForm()
     setError('')
     setSuccess('')
     setShowForm(true)
@@ -154,18 +292,42 @@ function Machines() {
   const closeForm = () => {
     setShowForm(false)
     setEditingMachine(null)
+    resetForm()
+  }
 
-    reset({
-      name: '',
-      type: 'washer',
-      capacityKg: 1,
-      status: 'active',
+  const applyPreset = (
+    preset: (typeof MACHINE_PRESETS)[number]
+  ) => {
+    setValue('name', preset.name, {
+      shouldValidate: true,
+    })
+
+    setValue('type', preset.type, {
+      shouldValidate: true,
+    })
+
+    setValue(
+      'capacityKg',
+      preset.capacityKg,
+      {
+        shouldValidate: true,
+      }
+    )
+
+    setValue('status', 'active', {
+      shouldValidate: true,
     })
   }
+
+  // ==========================================
+  // CREATE / UPDATE MACHINE
+  // ==========================================
 
   const saveMachine = async (
     data: MachineFormData
   ) => {
+    if (saving) return
+
     try {
       setSaving(true)
       setError('')
@@ -188,7 +350,10 @@ function Machines() {
           'Machine updated successfully.'
         )
       } else {
-        await api.post('/machines', payload)
+        await api.post(
+          '/machines',
+          payload
+        )
 
         setSuccess(
           'Machine added successfully.'
@@ -197,10 +362,10 @@ function Machines() {
 
       closeForm()
       await loadMachines()
-    } catch (error) {
+    } catch (err) {
       setError(
         getErrorMessage(
-          error,
+          err,
           'Unable to save machine.'
         )
       )
@@ -209,18 +374,33 @@ function Machines() {
     }
   }
 
+  // ==========================================
+  // DELETE UNUSED MACHINE
+  // ==========================================
+
   const deleteMachine = async (
     machine: Machine
   ) => {
-    const confirmed = window.confirm(
-      `Delete ${machine.name}?\n\nMachines referenced by laundry orders cannot be deleted.`
-    )
+    if (deletingId) return
 
-    if (!confirmed) {
+    if (getDisplayStatus(machine) === 'in-use') {
+      setError(
+        `"${machine.name}" is currently in use and cannot be deleted.`
+      )
+      setSuccess('')
       return
     }
 
+    const confirmed = window.confirm(
+      `Delete "${machine.name}"?\n\n` +
+        'Only machines without laundry order history can be deleted.\n' +
+        'Machines used in previous orders must be retained.'
+    )
+
+    if (!confirmed) return
+
     try {
+      setDeletingId(machine._id)
       setError('')
       setSuccess('')
 
@@ -229,19 +409,31 @@ function Machines() {
       )
 
       setSuccess(
-        'Machine deleted successfully.'
+        `"${machine.name}" was deleted successfully.`
       )
 
       await loadMachines()
-    } catch (error) {
+    } catch (err) {
       setError(
         getErrorMessage(
-          error,
+          err,
           'Unable to delete machine.'
         )
       )
+    } finally {
+      setDeletingId(null)
     }
   }
+
+  const handleRefresh = async () => {
+    setError('')
+    setSuccess('')
+    await loadMachines()
+  }
+
+  // ==========================================
+  // LOADING
+  // ==========================================
 
   if (loading) {
     return (
@@ -253,13 +445,18 @@ function Machines() {
     )
   }
 
+  // ==========================================
+  // PAGE
+  // ==========================================
+
   return (
     <div className="mx-auto max-w-7xl">
       {/* HEADER */}
+
       <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wider text-cyan-600">
-            Live Monitoring
+            Equipment Management
           </p>
 
           <h1 className="mt-1 text-3xl font-bold text-slate-900">
@@ -267,57 +464,108 @@ function Machines() {
           </h1>
 
           <p className="mt-2 text-slate-500">
-            Manage laundry machines and monitor their
-            current availability.
+            Manage washing and drying equipment
+            and monitor machine availability.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={openAddForm}
-          className="rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-white transition hover:bg-cyan-600"
-        >
-          + Add Machine
-        </button>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              void handleRefresh()
+            }
+            disabled={refreshing}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {refreshing
+              ? 'Refreshing...'
+              : 'Refresh'}
+          </button>
+
+          <button
+            type="button"
+            onClick={openAddForm}
+            disabled={saving}
+            className="rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
+          >
+            + Add Machine
+          </button>
+        </div>
       </div>
 
       {/* MESSAGES */}
+
       {error && (
-        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div
+          role="alert"
+          className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
           {error}
         </div>
       )}
 
       {success && (
-        <div className="mb-5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+        <div
+          role="status"
+          className="mb-5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700"
+        >
           {success}
         </div>
       )}
 
+      {/* WORKFLOW EXPLANATION */}
+
+      <section className="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-5">
+        <h2 className="font-bold text-slate-900">
+          Washer-to-Dryer Workflow
+        </h2>
+
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          Laundry orders start in the Received queue.
+          An assigned washer becomes In Use during
+          Washing. When Drying starts, the washer
+          becomes Available and the assigned dryer
+          becomes In Use. The dryer becomes Available
+          when Folding starts.
+        </p>
+
+        <p className="mt-2 text-xs font-medium text-cyan-800">
+          Machine availability is calculated from
+          current order statuses, not set manually.
+        </p>
+      </section>
+
       {/* SUMMARY */}
+
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           label="Total Machines"
           value={counts.total}
+          detail={`${counts.washers} washers · ${counts.dryers} dryers`}
         />
 
         <SummaryCard
           label="Available"
           value={counts.available}
+          detail="Ready for new assignments"
         />
 
         <SummaryCard
           label="In Use"
           value={counts.inUse}
+          detail="Washing or drying in progress"
         />
 
         <SummaryCard
           label="Maintenance"
           value={counts.maintenance}
+          detail="Temporarily unavailable"
         />
       </div>
 
-      {/* ADD / EDIT */}
+      {/* MACHINE FORM */}
+
       {showForm && (
         <section className="mb-6 rounded-2xl bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
@@ -329,33 +577,85 @@ function Machines() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Configure the machine type, capacity,
-                and maintenance status.
+                Configure machine name, type,
+                capacity, and maintenance status.
               </p>
             </div>
 
             <button
               type="button"
               onClick={closeForm}
-              className="rounded-lg px-3 py-2 text-slate-500 hover:bg-slate-100"
+              disabled={saving}
+              className="rounded-lg px-3 py-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
             >
               ✕
             </button>
           </div>
+
+          {/* PRESETS */}
+
+          {!editingMachine && (
+            <div className="mt-5">
+              <p className="mb-2 text-sm font-semibold text-slate-700">
+                Suggested Machines
+              </p>
+
+              <div className="flex flex-wrap gap-2">
+                {MACHINE_PRESETS.map(
+                  (preset) => {
+                    const alreadyExists =
+                      machines.some(
+                        (machine) =>
+                          machine.name.toLowerCase() ===
+                          preset.name.toLowerCase()
+                      )
+
+                    return (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() =>
+                          applyPreset(preset)
+                        }
+                        disabled={alreadyExists}
+                        className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {preset.name}
+                        {alreadyExists
+                          ? ' ✓'
+                          : ''}
+                      </button>
+                    )
+                  }
+                )}
+              </div>
+
+              <p className="mt-2 text-xs text-slate-500">
+                Each machine needs a unique name.
+                Suggested machines have 15 kg
+                capacity each.
+              </p>
+            </div>
+          )}
 
           <form
             onSubmit={handleSubmit(saveMachine)}
             className="mt-6 grid gap-4 md:grid-cols-2"
           >
             {/* NAME */}
+
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                htmlFor="machine-name"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Machine Name
               </label>
 
               <input
+                id="machine-name"
                 {...register('name')}
-                placeholder="Example: Washer 1"
+                placeholder="Example: Washer 01"
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-cyan-500"
               />
 
@@ -367,42 +667,53 @@ function Machines() {
             </div>
 
             {/* TYPE */}
+
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                htmlFor="machine-type"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Machine Type
               </label>
 
               <select
+                id="machine-type"
                 {...register('type')}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-cyan-500"
               >
                 <option value="washer">
                   Washer
                 </option>
-
                 <option value="dryer">
                   Dryer
                 </option>
               </select>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Washers clean clothes. Dryers
+                dry clothes after washing.
+              </p>
             </div>
 
             {/* CAPACITY */}
+
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                htmlFor="machine-capacity"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Capacity (kg)
               </label>
 
               <input
+                id="machine-capacity"
                 type="number"
                 min="1"
                 max="15"
-                step="1"
-                {...register(
-                  'capacityKg',
-                  {
-                    valueAsNumber: true,
-                  }
-                )}
+                step="0.5"
+                {...register('capacityKg', {
+                  valueAsNumber: true,
+                })}
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-cyan-500"
               />
 
@@ -412,46 +723,58 @@ function Machines() {
                 </p>
               )}
 
-
               <p className="mt-2 text-xs text-slate-500">
-                Maximum machine capacity is 15 kg.
-                Laundry exceeding 15 kg must be divided
-                into separate orders.
+                Maximum capacity is 15 kg.
               </p>
-
             </div>
 
             {/* STATUS */}
+
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                htmlFor="machine-status"
+                className="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Machine Status
               </label>
 
               <select
+                id="machine-status"
                 {...register('status')}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-cyan-500"
               >
                 <option value="active">
                   Active
                 </option>
-
                 <option value="maintenance">
                   Maintenance
                 </option>
               </select>
 
-              <p className="mt-1 text-xs text-slate-400">
-                In Use is automatic and cannot be
-                manually selected.
+              <p className="mt-1 text-xs text-slate-500">
+                In Use is calculated automatically
+                from laundry orders.
               </p>
             </div>
 
-            {/* ACTIONS */}
+            {/* BUSY NOTICE */}
+
+            {editingMachine?.isBusy && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 md:col-span-2">
+                This machine is currently in use.
+                It cannot be placed under maintenance
+                or have its capacity reduced below
+                the active laundry load.
+              </div>
+            )}
+
+            {/* FORM BUTTONS */}
+
             <div className="flex flex-wrap gap-3 md:col-span-2">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-white hover:bg-cyan-600 disabled:opacity-50"
+                className="rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
               >
                 {saving
                   ? 'Saving...'
@@ -463,7 +786,8 @@ function Machines() {
               <button
                 type="button"
                 onClick={closeForm}
-                className="rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50"
+                disabled={saving}
+                className="rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -473,24 +797,22 @@ function Machines() {
       )}
 
       {/* MACHINE LIST */}
+
       {machines.length === 0 ? (
         <section className="rounded-2xl bg-white p-12 text-center shadow-sm">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-xl">
-            ◉
-          </div>
-
-          <h2 className="mt-4 text-lg font-bold text-slate-900">
-            No machines yet
+          <h2 className="text-lg font-bold text-slate-900">
+            No Machines Yet
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
-            Add your laundry shop's first machine.
+          <p className="mt-2 text-sm text-slate-500">
+            Add washers and dryers to start
+            processing laundry orders.
           </p>
 
           <button
             type="button"
             onClick={openAddForm}
-            className="mt-5 rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-white hover:bg-cyan-600"
+            className="mt-5 rounded-xl bg-cyan-500 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-400"
           >
             + Add Machine
           </button>
@@ -501,16 +823,20 @@ function Machines() {
             const displayStatus =
               getDisplayStatus(machine)
 
+            const isBusy =
+              displayStatus === 'in-use'
+
             return (
               <article
                 key={machine._id}
                 className="rounded-2xl bg-white p-6 shadow-sm"
               >
+                {/* MACHINE HEADER */}
+
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-100 text-xl text-cyan-700">
-                      {machine.type ===
-                        'washer'
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-100 text-xl font-bold text-cyan-700">
+                      {machine.type === 'washer'
                         ? 'W'
                         : 'D'}
                     </div>
@@ -531,8 +857,10 @@ function Machines() {
                   />
                 </div>
 
+                {/* CAPACITY */}
+
                 <div className="mt-6 rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Capacity
                   </p>
 
@@ -541,13 +869,36 @@ function Machines() {
                   </p>
                 </div>
 
+                {/* WORKFLOW STATUS */}
+
+                <div className="mt-4 rounded-xl border border-slate-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Current Usage
+                  </p>
+
+                  <p className="mt-1 text-sm font-medium text-slate-800">
+                    {displayStatus === 'maintenance'
+                      ? 'Unavailable for assignments'
+                      : isBusy
+                        ? machine.type === 'washer'
+                          ? 'Washing in progress'
+                          : 'Drying in progress'
+                        : 'Ready for next laundry order'}
+                  </p>
+                </div>
+
+                {/* ACTIONS */}
+
                 <div className="mt-5 flex gap-2">
                   <button
                     type="button"
                     onClick={() =>
                       openEditForm(machine)
                     }
-                    className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    disabled={
+                      deletingId !== null
+                    }
+                    className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
                     Edit
                   </button>
@@ -555,28 +906,55 @@ function Machines() {
                   <button
                     type="button"
                     onClick={() =>
-                      deleteMachine(machine)
+                      void deleteMachine(machine)
                     }
-                    className="flex-1 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                    disabled={
+                      deletingId !== null ||
+                      isBusy
+                    }
+                    className="flex-1 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
                   >
-                    Delete
+                    {deletingId === machine._id
+                      ? 'Deleting...'
+                      : 'Delete'}
                   </button>
                 </div>
+
+                {isBusy && (
+                  <p className="mt-3 text-xs text-amber-700">
+                    This machine is currently
+                    assigned to an active
+                    laundry order.
+                  </p>
+                )}
               </article>
             )
           })}
         </div>
       )}
+
+      <p className="mt-6 text-sm text-slate-500">
+        Machine availability updates whenever
+        you refresh this page. Machines used
+        in previous orders are protected from
+        deletion to preserve transaction history.
+      </p>
     </div>
   )
 }
 
+// ==========================================
+// SUMMARY CARD
+// ==========================================
+
 function SummaryCard({
   label,
   value,
+  detail,
 }: {
   label: string
   value: number
+  detail: string
 }) {
   return (
     <div className="rounded-2xl bg-white p-6 shadow-sm">
@@ -587,27 +965,39 @@ function SummaryCard({
       <p className="mt-2 text-3xl font-bold text-slate-900">
         {value}
       </p>
+
+      <p className="mt-2 text-xs text-slate-500">
+        {detail}
+      </p>
     </div>
   )
 }
 
+// ==========================================
+// STATUS BADGE
+// ==========================================
+
 function StatusBadge({
   status,
 }: {
-  status: 'available' | 'in-use' | 'maintenance'
+  status: AvailabilityStatus
 }) {
-  const styles = {
+  const styles: Record<
+    AvailabilityStatus,
+    string
+  > = {
     available:
       'bg-green-100 text-green-700',
-
     'in-use':
       'bg-amber-100 text-amber-700',
-
     maintenance:
       'bg-red-100 text-red-700',
   }
 
-  const labels = {
+  const labels: Record<
+    AvailabilityStatus,
+    string
+  > = {
     available: 'Available',
     'in-use': 'In Use',
     maintenance: 'Maintenance',
@@ -620,38 +1010,6 @@ function StatusBadge({
       {labels[status]}
     </span>
   )
-}
-
-function getDisplayStatus(
-  machine: Machine
-): 'available' | 'in-use' | 'maintenance' {
-  if (machine.status === 'maintenance') {
-    return 'maintenance'
-  }
-
-  if (
-    machine.isBusy === true ||
-    machine.availabilityStatus?.toLowerCase() === 'in-use'
-  ) {
-    return 'in-use'
-  }
-
-  return 'available'
-}
-
-
-function getErrorMessage(
-  error: unknown,
-  fallback: string
-) {
-  if (axios.isAxiosError(error)) {
-    return (
-      error.response?.data?.message ||
-      fallback
-    )
-  }
-
-  return fallback
 }
 
 export default Machines

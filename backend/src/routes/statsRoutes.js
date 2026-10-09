@@ -13,19 +13,23 @@ const router = express.Router();
 // HELPERS
 // =====================================================
 
-// Use centavos to avoid floating-point errors.
 const toCentavos = (amount) =>
   Math.round(Number(amount) * 100);
 
 const toPesos = (centavos) =>
   Number((centavos / 100).toFixed(2));
 
-// Convert a YYYY-MM-DD Philippine calendar date
-// to its equivalent UTC timestamp.
-//
-// Example:
-// 2026-10-09 00:00 in the Philippines
-// equals 2026-10-08 16:00 UTC.
+const PRIORITY_BY_NAME = {
+  'Standard Laundry': 1,
+  'Priority Laundry': 2,
+  'Express Laundry': 3,
+};
+
+const getPriority = (serviceName) =>
+  PRIORITY_BY_NAME[serviceName] || 1;
+
+// Philippine Standard Time = UTC+8.
+// Converts YYYY-MM-DD in Manila to UTC timestamps.
 const parseManilaDate = (value, endOfDay = false) => {
   if (typeof value !== 'string') {
     return null;
@@ -41,7 +45,6 @@ const parseManilaDate = (value, endOfDay = false) => {
   const month = Number(match[2]);
   const day = Number(match[3]);
 
-  // Validate that the calendar date actually exists.
   const calendarDate = new Date(
     Date.UTC(year, month - 1, day)
   );
@@ -54,15 +57,18 @@ const parseManilaDate = (value, endOfDay = false) => {
     return null;
   }
 
-  // Philippine Standard Time is UTC+8.
-  const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+  const MANILA_OFFSET_MS =
+    8 * 60 * 60 * 1000;
 
   const startOfDayUTC =
-    calendarDate.getTime() - MANILA_OFFSET_MS;
+    calendarDate.getTime() -
+    MANILA_OFFSET_MS;
 
   if (endOfDay) {
     return new Date(
-      startOfDayUTC + 24 * 60 * 60 * 1000 - 1
+      startOfDayUTC +
+        24 * 60 * 60 * 1000 -
+        1
     );
   }
 
@@ -71,7 +77,15 @@ const parseManilaDate = (value, endOfDay = false) => {
 
 // =====================================================
 // GET /api/stats/summary
-// Dashboard statistics
+//
+// Dashboard overview:
+// - Customers
+// - Services
+// - Machines
+// - Laundry workflow statuses
+// - Overdue pickups
+// - Overdue processing
+// - Revenue
 // =====================================================
 
 router.get('/summary', async (req, res, next) => {
@@ -82,15 +96,19 @@ router.get('/summary', async (req, res, next) => {
       totalCustomers,
       totalServices,
       activeServices,
-      totalMachines,
-      maintenanceMachines,
+      machines,
       totalOrders,
       receivedOrders,
       washingOrders,
+      dryingOrders,
+      foldingOrders,
       readyOrders,
       claimedOrders,
       cancelledOrders,
-      overdueOrders,
+      overduePickups,
+      overdueProcessing,
+      washingAssignments,
+      dryingAssignments,
       paymentResult,
     ] = await Promise.all([
       Customer.countDocuments(),
@@ -101,11 +119,9 @@ router.get('/summary', async (req, res, next) => {
         isActive: true,
       }),
 
-      Machine.countDocuments(),
-
-      Machine.countDocuments({
-        status: 'maintenance',
-      }),
+      Machine.find()
+        .select('_id name type status')
+        .lean(),
 
       Order.countDocuments(),
 
@@ -115,6 +131,14 @@ router.get('/summary', async (req, res, next) => {
 
       Order.countDocuments({
         status: 'washing',
+      }),
+
+      Order.countDocuments({
+        status: 'drying',
+      }),
+
+      Order.countDocuments({
+        status: 'folding',
       }),
 
       Order.countDocuments({
@@ -129,32 +153,127 @@ router.get('/summary', async (req, res, next) => {
         status: 'cancelled',
       }),
 
+      // Ready orders that missed their due date
+      // and have not yet been claimed.
       Order.countDocuments({
         status: 'ready',
         dueDate: { $lt: now },
         claimedAt: null,
       }),
 
-      Payment.aggregate([
-        {
-          $group: {
-            _id: null,
-            totalRevenue: {
-              $sum: '$amount',
-            },
-          },
+      // Orders still being processed after
+      // their target due date.
+      Order.countDocuments({
+        status: {
+          $in: [
+            'received',
+            'washing',
+            'drying',
+            'folding',
+          ],
         },
-      ]),
+        dueDate: { $lt: now },
+      }),
+
+      Order.find({
+        status: 'washing',
+      })
+        .select('washer machine')
+        .lean(),
+
+      Order.find({
+        status: 'drying',
+      })
+        .select('dryer')
+        .lean(),
+
+      Payment.find()
+        .select('amount')
+        .lean(),
     ]);
 
-    const rawRevenue =
-      paymentResult.length > 0
-        ? paymentResult[0].totalRevenue
-        : 0;
+    // ==========================================
+    // MACHINE AVAILABILITY
+    // ==========================================
+
+    const busyWasherIds = new Set();
+
+    for (const order of washingAssignments) {
+      const washerId =
+        order.washer || order.machine;
+
+      if (washerId) {
+        busyWasherIds.add(
+          washerId.toString()
+        );
+      }
+    }
+
+    const busyDryerIds = new Set();
+
+    for (const order of dryingAssignments) {
+      if (order.dryer) {
+        busyDryerIds.add(
+          order.dryer.toString()
+        );
+      }
+    }
+
+    let availableMachines = 0;
+    let inUseMachines = 0;
+    let maintenanceMachines = 0;
+
+    let washerCount = 0;
+    let dryerCount = 0;
+
+    for (const machine of machines) {
+      if (machine.type === 'washer') {
+        washerCount += 1;
+      }
+
+      if (machine.type === 'dryer') {
+        dryerCount += 1;
+      }
+
+      if (machine.status === 'maintenance') {
+        maintenanceMachines += 1;
+        continue;
+      }
+
+      const id = machine._id.toString();
+
+      const isBusy =
+        machine.type === 'washer'
+          ? busyWasherIds.has(id)
+          : busyDryerIds.has(id);
+
+      if (isBusy) {
+        inUseMachines += 1;
+      } else {
+        availableMachines += 1;
+      }
+    }
+
+    // ==========================================
+    // REVENUE
+    // ==========================================
+
+    // Sum integer centavos to avoid
+    // floating-point accumulation errors.
+    const totalRevenueCentavos =
+      paymentResult.reduce(
+        (sum, payment) =>
+          sum + toCentavos(payment.amount),
+        0
+      );
 
     const totalRevenue = toPesos(
-      toCentavos(rawRevenue)
+      totalRevenueCentavos
     );
+
+    // ==========================================
+    // RESPONSE
+    // ==========================================
 
     return res.status(200).json({
       customers: {
@@ -164,23 +283,52 @@ router.get('/summary', async (req, res, next) => {
       services: {
         total: totalServices,
         active: activeServices,
-        inactive: totalServices - activeServices,
+        inactive:
+          totalServices - activeServices,
       },
 
       machines: {
-        total: totalMachines,
-        active: totalMachines - maintenanceMachines,
+        total: machines.length,
+        active:
+          machines.length -
+          maintenanceMachines,
         maintenance: maintenanceMachines,
+
+        available: availableMachines,
+        inUse: inUseMachines,
+
+        washers: washerCount,
+        dryers: dryerCount,
       },
 
       orders: {
         total: totalOrders,
+
         received: receivedOrders,
         washing: washingOrders,
+        drying: dryingOrders,
+        folding: foldingOrders,
         ready: readyOrders,
         claimed: claimedOrders,
         cancelled: cancelledOrders,
-        overdue: overdueOrders,
+
+        active:
+          receivedOrders +
+          washingOrders +
+          dryingOrders +
+          foldingOrders +
+          readyOrders,
+
+        // Backward compatibility with
+        // the original dashboard.
+        overdue: overduePickups,
+
+        overduePickups,
+        overdueProcessing,
+      },
+
+      priorityQueue: {
+        waiting: receivedOrders,
       },
 
       revenue: {
@@ -193,11 +341,81 @@ router.get('/summary', async (req, res, next) => {
 });
 
 // =====================================================
+// GET /api/stats/priority-queue
+//
+// Waiting orders in priority order:
+// 1. Express Laundry
+// 2. Priority Laundry
+// 3. Standard Laundry
+//
+// FIFO within the same priority.
+//
+// This is a read-only queue view.
+// It does not automatically start a machine.
+// =====================================================
+
+router.get(
+  '/priority-queue',
+  async (req, res, next) => {
+    try {
+      const orders = await Order.find({
+        status: 'received',
+      })
+        .populate(
+          'customer',
+          'fullName phone'
+        )
+        .populate(
+          'service',
+          'name turnaroundHours'
+        )
+        .sort({ createdAt: 1 });
+
+      const sortedOrders = orders.sort(
+        (a, b) => {
+          const priorityA = getPriority(
+            a.service?.name
+          );
+
+          const priorityB = getPriority(
+            b.service?.name
+          );
+
+          if (priorityA !== priorityB) {
+            return priorityB - priorityA;
+          }
+
+          const timeDifference =
+            new Date(a.createdAt).getTime() -
+            new Date(b.createdAt).getTime();
+
+          if (timeDifference !== 0) {
+            return timeDifference;
+          }
+
+          return a._id
+            .toString()
+            .localeCompare(
+              b._id.toString()
+            );
+        }
+      );
+
+      return res.status(200).json(
+        sortedOrders
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// =====================================================
 // GET /api/stats/revenue?from=&to=
 //
-// Revenue report based on payment.paidAt.
+// Revenue based on actual payments.
 //
-// Date-only filters use Philippine Standard Time.
+// Date-only filters use Philippine time.
 //
 // Examples:
 // /api/stats/revenue
@@ -210,18 +428,21 @@ router.get('/revenue', async (req, res, next) => {
   try {
     const { from, to } = req.query;
 
-    // Reject unsupported date formats rather than
-    // silently returning incorrect financial results.
     if (
       (from !== undefined &&
-        (typeof from !== 'string' ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(from))) ||
+        (
+          typeof from !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(from)
+        )) ||
       (to !== undefined &&
-        (typeof to !== 'string' ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(to)))
+        (
+          typeof to !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(to)
+        ))
     ) {
       return res.status(400).json({
-        message: 'Dates must use YYYY-MM-DD format',
+        message:
+          'Dates must use YYYY-MM-DD format',
       });
     }
 
@@ -250,7 +471,8 @@ router.get('/revenue', async (req, res, next) => {
     if (
       fromDate &&
       toDate &&
-      fromDate.getTime() > toDate.getTime()
+      fromDate.getTime() >
+        toDate.getTime()
     ) {
       return res.status(400).json({
         message:
@@ -272,11 +494,15 @@ router.get('/revenue', async (req, res, next) => {
       }
     }
 
-    // Get payments within the requested period.
+    // ==========================================
+    // PAYMENT RECORDS
+    // ==========================================
+
     const payments = await Payment.find(filter)
       .populate({
         path: 'order',
-        select: 'customer service totalPrice status',
+        select:
+          'customer service totalPrice status',
         populate: [
           {
             path: 'customer',
@@ -290,16 +516,16 @@ router.get('/revenue', async (req, res, next) => {
       })
       .sort({ paidAt: -1 });
 
-    // =================================================
-    // REVENUE CALCULATIONS
-    // =================================================
+    // ==========================================
+    // REVENUE CALCULATION
+    // ==========================================
 
-    // Sum integer centavos for accurate totals.
-    const totalRevenueCentavos = payments.reduce(
-      (sum, payment) =>
-        sum + toCentavos(payment.amount),
-      0
-    );
+    const totalRevenueCentavos =
+      payments.reduce(
+        (sum, payment) =>
+          sum + toCentavos(payment.amount),
+        0
+      );
 
     const totalRevenue = toPesos(
       totalRevenueCentavos
@@ -307,7 +533,10 @@ router.get('/revenue', async (req, res, next) => {
 
     const paymentCount = payments.length;
 
-    // Payment method breakdown, also in centavos.
+    // ==========================================
+    // PAYMENT METHOD BREAKDOWN
+    // ==========================================
+
     const byMethodCentavos = {
       cash: 0,
       gcash: 0,
@@ -327,14 +556,18 @@ router.get('/revenue', async (req, res, next) => {
     });
 
     const byMethod = {
-      cash: toPesos(byMethodCentavos.cash),
-      gcash: toPesos(byMethodCentavos.gcash),
-      bank: toPesos(byMethodCentavos.bank),
-    };
+      cash: toPesos(
+        byMethodCentavos.cash
+      ),
 
-    // =================================================
-    // API RESPONSE
-    // =================================================
+      gcash: toPesos(
+        byMethodCentavos.gcash
+      ),
+
+      bank: toPesos(
+        byMethodCentavos.bank
+      ),
+    };
 
     return res.status(200).json({
       filters: {
@@ -343,11 +576,8 @@ router.get('/revenue', async (req, res, next) => {
       },
 
       totalRevenue,
-
       paymentCount,
-
       byMethod,
-
       payments,
     });
   } catch (error) {

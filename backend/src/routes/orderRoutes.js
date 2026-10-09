@@ -10,18 +10,37 @@ const Payment = require('../models/Payment');
 
 const router = express.Router();
 
-const BUSY_ORDER_STATUSES = ['received', 'washing'];
-
 const ORDER_STATUSES = [
   'received',
   'washing',
+  'drying',
+  'folding',
   'ready',
   'claimed',
   'cancelled',
 ];
 
+const TRANSITIONS = {
+  received: ['washing', 'cancelled'],
+  washing: ['drying'],
+  drying: ['folding'],
+  folding: ['ready'],
+  ready: ['claimed'],
+  claimed: [],
+  cancelled: [],
+};
+
+// Final LaundryLink service priorities.
+// Higher number means higher priority.
+const PRIORITY_BY_NAME = {
+  'Standard Laundry': 1,
+  'Priority Laundry': 2,
+  'Express Laundry': 3,
+};
+
 const isValidId = (id) =>
-  mongoose.Types.ObjectId.isValid(id);
+  typeof id === 'string' &&
+  /^[a-fA-F0-9]{24}$/.test(id);
 
 const toCentavos = (value) =>
   Math.round(Number(value) * 100);
@@ -45,14 +64,199 @@ const populateOrder = (query) =>
     .populate(
       'machine',
       'name type capacityKg status'
+    )
+    .populate(
+      'washer',
+      'name type capacityKg status'
+    )
+    .populate(
+      'dryer',
+      'name type capacityKg status'
     );
 
+const validWeight = (value) => {
+  const weight = Number(value);
+
+  return (
+    value !== null &&
+    value !== undefined &&
+    value !== '' &&
+    Number.isFinite(weight) &&
+    weight >= 1 &&
+    weight <= 15
+  );
+};
+
+const validateNotes = (notes) => {
+  if (
+    notes !== undefined &&
+    notes !== null &&
+    typeof notes !== 'string'
+  ) {
+    throw httpError(400, 'Notes must be a string');
+  }
+
+  return typeof notes === 'string'
+    ? notes.trim()
+    : '';
+};
+
+const getPriority = (serviceName) =>
+  PRIORITY_BY_NAME[serviceName] || 1;
+
 // =====================================================
-// HELPERS
+// TRANSACTION HELPERS
 // =====================================================
 
-// Calculate bulk and loyalty discounts.
-// Use only the highest applicable discount.
+// Payment routes use an order-document write.
+// We use the same approach to coordinate changes
+// to status, cancellation, claiming, and payments.
+const lockOrder = async (orderId, session) => {
+  const result = await Order.collection.updateOne(
+    {
+      _id: new mongoose.Types.ObjectId(orderId),
+    },
+    {
+      $currentDate: {
+        updatedAt: true,
+      },
+    },
+    { session }
+  );
+
+  if (result.matchedCount === 0) {
+    throw httpError(404, 'Order not found');
+  }
+
+  const order = await Order.findById(orderId)
+    .session(session);
+
+  if (!order) {
+    throw httpError(404, 'Order not found');
+  }
+
+  return order;
+};
+
+// Serialize machine assignment operations by writing
+// to the machine document inside the transaction.
+const lockMachine = async (machineId, session) => {
+  const result = await Machine.collection.updateOne(
+    {
+      _id: new mongoose.Types.ObjectId(machineId),
+    },
+    {
+      $currentDate: {
+        updatedAt: true,
+      },
+    },
+    { session }
+  );
+
+  if (result.matchedCount === 0) {
+    throw httpError(404, 'Machine not found');
+  }
+
+  const machine = await Machine.findById(machineId)
+    .session(session);
+
+  if (!machine) {
+    throw httpError(404, 'Machine not found');
+  }
+
+  return machine;
+};
+
+// A washer is busy only during washing.
+// A dryer is busy only during drying.
+// Old "machine" field is supported for legacy orders.
+const getMachineBusyFilter = (machineId, type) => {
+  if (type === 'washer') {
+    return {
+      status: 'washing',
+      $or: [
+        { washer: machineId },
+        {
+          washer: null,
+          machine: machineId,
+        },
+      ],
+    };
+  }
+
+  return {
+    status: 'drying',
+    dryer: machineId,
+  };
+};
+
+const validateAndReserveMachine = async ({
+  machineId,
+  expectedType,
+  weightKg,
+  orderId,
+  session,
+}) => {
+  if (!isValidId(machineId)) {
+    throw httpError(
+      400,
+      `Please select a valid ${expectedType}`
+    );
+  }
+
+  const machine = await lockMachine(machineId, session);
+
+  if (machine.type !== expectedType) {
+    throw httpError(
+      400,
+      `Selected machine must be a ${expectedType}`
+    );
+  }
+
+  if (machine.status !== 'active') {
+    throw httpError(
+      409,
+      `${machine.name} is under maintenance`
+    );
+  }
+
+  if (machine.capacityKg < weightKg) {
+    throw httpError(
+      409,
+      `${machine.name} cannot handle ${weightKg} kg`
+    );
+  }
+
+  const busyFilter = getMachineBusyFilter(
+    machine._id,
+    expectedType
+  );
+
+  busyFilter._id = {
+    $ne: new mongoose.Types.ObjectId(orderId),
+  };
+
+  const occupied = await Order.exists(
+    busyFilter
+  ).session(session);
+
+  if (occupied) {
+    throw httpError(
+      409,
+      `${machine.name} is currently in use`
+    );
+  }
+
+  return machine;
+};
+
+// =====================================================
+// PRICING
+// Highest applicable discount only.
+// Bulk: 10% for 10 kg or more.
+// Loyalty: 5% for 5 or more claimed orders.
+// =====================================================
+
 const calculateOrderPrice = async (
   customerId,
   service,
@@ -62,13 +266,13 @@ const calculateOrderPrice = async (
     service.pricePerKg
   );
 
-  const minimumChargeCentavos = toCentavos(
-    service.minCharge
+  const minChargeCentavos = toCentavos(
+    service.minCharge || 0
   );
 
   const subtotalCentavos = Math.max(
     Math.round(weightKg * pricePerKgCentavos),
-    minimumChargeCentavos
+    minChargeCentavos
   );
 
   const claimedOrders = await Order.countDocuments({
@@ -76,192 +280,81 @@ const calculateOrderPrice = async (
     status: 'claimed',
   });
 
-  let discountPercent = 0;
+ let discountPercent = 0;
 
-  if (weightKg >= 10) {
-    discountPercent = 10;
-  }
+// 5% Bulk Discount for 10 kg and above
+if (weightKg >= 10) {
+  discountPercent += 5;
+}
 
-  if (claimedOrders >= 5) {
-    discountPercent = Math.max(discountPercent, 5);
-  }
+// 5% Loyalty Discount for customers with
+// at least 5 claimed orders
+if (claimedOrders >= 5) {
+  discountPercent += 5;
+}
 
   const discountCentavos = Math.round(
-    subtotalCentavos * (discountPercent / 100)
+    subtotalCentavos * discountPercent / 100
   );
-
-  const totalCentavos =
-    subtotalCentavos - discountCentavos;
 
   return {
     subtotal: toPesos(subtotalCentavos),
     discountPercent,
-    totalPrice: toPesos(totalCentavos),
+    totalPrice: toPesos(
+      subtotalCentavos - discountCentavos
+    ),
   };
 };
 
-// Check whether a machine can handle an order.
-const validateMachine = async (
-  machineId,
-  weightKg,
-  excludedOrderId = null
-) => {
-  if (!machineId) {
-    return {
-      error: {
-        status: 400,
-        message: 'Please select a machine',
-      },
-    };
-  }
+// =====================================================
+// ORDER CREATION
+// No machine required at creation.
+// Assign a washer when washing begins.
+// Assign a dryer when drying begins.
+// =====================================================
 
-  if (!isValidId(machineId)) {
-    return {
-      error: {
-        status: 400,
-        message: 'Invalid machine ID',
-      },
-    };
-  }
-
-  const machine = await Machine.findById(machineId);
-
-  if (!machine) {
-    return {
-      error: {
-        status: 404,
-        message: 'Machine not found',
-      },
-    };
-  }
-
-  if (machine.status === 'maintenance') {
-    return {
-      error: {
-        status: 409,
-        message: 'Machine is under maintenance',
-      },
-    };
-  }
-
-  if (weightKg > machine.capacityKg) {
-    return {
-      error: {
-        status: 409,
-        message: 'Order weight exceeds machine capacity',
-      },
-    };
-  }
-
-  const busyFilter = {
-    machine: machineId,
-    status: {
-      $in: BUSY_ORDER_STATUSES,
-    },
-  };
-
-  if (excludedOrderId) {
-    busyFilter._id = {
-      $ne: excludedOrderId,
-    };
-  }
-
-  const busyOrder = await Order.findOne(busyFilter);
-
-  if (busyOrder) {
-    return {
-      error: {
-        status: 409,
-        message: 'Machine is currently in use',
-      },
-    };
-  }
-
-  return { machine };
-};
-
-// Create order for an existing customer.
 const createLaundryOrder = async ({
   customerId,
   serviceId,
-  machineId,
   weightKg,
   notes,
 }) => {
   if (!isValidId(customerId)) {
-    return {
-      error: {
-        status: 400,
-        message: 'Invalid customer ID',
-      },
-    };
+    throw httpError(400, 'Invalid customer ID');
   }
 
   if (!isValidId(serviceId)) {
-    return {
-      error: {
-        status: 400,
-        message: 'Invalid service ID',
-      },
-    };
+    throw httpError(400, 'Invalid service ID');
   }
 
+  if (!validWeight(weightKg)) {
+    throw httpError(
+      400,
+      'Weight must be between 1 and 15 kg'
+    );
+  }
+
+  const cleanNotes = validateNotes(notes);
   const weight = Number(weightKg);
 
-  if (
-    weightKg === null ||
-    weightKg === undefined ||
-    weightKg === '' ||
-    !Number.isFinite(weight) ||
-    weight < 1 ||
-    weight > 15
-  ) {
-    return {
-      error: {
-        status: 400,
-        message: 'Weight must be between 1 and 15 kg',
-      },
-    };
-  }
-
-  const customer = await Customer.findById(customerId);
+  const [customer, service] = await Promise.all([
+    Customer.findById(customerId),
+    Service.findById(serviceId),
+  ]);
 
   if (!customer) {
-    return {
-      error: {
-        status: 404,
-        message: 'Customer not found',
-      },
-    };
+    throw httpError(404, 'Customer not found');
   }
 
-  const service = await Service.findById(serviceId);
-
   if (!service) {
-    return {
-      error: {
-        status: 404,
-        message: 'Service not found',
-      },
-    };
+    throw httpError(404, 'Service not found');
   }
 
   if (!service.isActive) {
-    return {
-      error: {
-        status: 400,
-        message: 'Selected service is inactive',
-      },
-    };
-  }
-
-  const machineResult = await validateMachine(
-    machineId,
-    weight
-  );
-
-  if (machineResult.error) {
-    return machineResult;
+    throw httpError(
+      400,
+      'Selected service is inactive'
+    );
   }
 
   const pricing = await calculateOrderPrice(
@@ -278,13 +371,15 @@ const createLaundryOrder = async ({
   const order = await Order.create({
     customer: customerId,
     service: serviceId,
-    machine: machineId,
+    machine: null,
+    washer: null,
+    dryer: null,
     weightKg: weight,
     discountPercent: pricing.discountPercent,
     totalPrice: pricing.totalPrice,
     status: 'received',
     dueDate,
-    notes: notes || '',
+    notes: cleanNotes,
   });
 
   const populatedOrder = await populateOrder(
@@ -300,13 +395,14 @@ const createLaundryOrder = async ({
 // =====================================================
 // GET /api/orders
 // =====================================================
+
 router.get('/', async (req, res, next) => {
   try {
     const orders = await populateOrder(
       Order.find().sort({ createdAt: -1 })
     );
 
-    res.status(200).json(orders);
+    return res.status(200).json(orders);
   } catch (error) {
     next(error);
   }
@@ -314,8 +410,9 @@ router.get('/', async (req, res, next) => {
 
 // =====================================================
 // POST /api/orders/pos
-// Create an order with a new or existing customer.
+// New or existing customer.
 // =====================================================
+
 router.post('/pos', async (req, res, next) => {
   let createdCustomer = null;
 
@@ -325,7 +422,6 @@ router.post('/pos', async (req, res, next) => {
       customer,
       customerId,
       service,
-      machine,
       weightKg,
       notes,
     } = req.body;
@@ -375,10 +471,8 @@ router.post('/pos', async (req, res, next) => {
       });
 
       selectedCustomerId = createdCustomer._id;
-    }
-
-    if (customerType === 'existing') {
-      if (!customerId || !isValidId(customerId)) {
+    } else {
+      if (!isValidId(customerId)) {
         return res.status(400).json({
           message:
             'Please select a valid existing customer',
@@ -398,35 +492,19 @@ router.post('/pos', async (req, res, next) => {
     }
 
     const result = await createLaundryOrder({
-      customerId: selectedCustomerId,
+      customerId: selectedCustomerId.toString(),
       serviceId: service,
-      machineId: machine,
       weightKg,
       notes,
     });
 
-    if (result.error) {
-      if (createdCustomer) {
-        await Customer.findByIdAndDelete(
-          createdCustomer._id
-        );
-        createdCustomer = null;
-      }
-
-      return res.status(result.error.status).json({
-        message: result.error.message,
-      });
-    }
-
-    res.status(201).json({
+    return res.status(201).json({
       message: 'Laundry order created successfully',
       customerCreated: customerType === 'new',
       order: result.order,
       pricing: result.pricing,
     });
   } catch (error) {
-    // Best-effort cleanup if the new customer
-    // was created but order creation failed.
     if (createdCustomer) {
       try {
         const hasOrder = await Order.exists({
@@ -452,33 +530,19 @@ router.post('/pos', async (req, res, next) => {
 
 // =====================================================
 // POST /api/orders
-// Existing customer order creation.
+// Existing customer.
 // =====================================================
+
 router.post('/', async (req, res, next) => {
   try {
-    const {
-      customer,
-      service,
-      machine,
-      weightKg,
-      notes,
-    } = req.body;
-
     const result = await createLaundryOrder({
-      customerId: customer,
-      serviceId: service,
-      machineId: machine,
-      weightKg,
-      notes,
+      customerId: req.body.customer,
+      serviceId: req.body.service,
+      weightKg: req.body.weightKg,
+      notes: req.body.notes,
     });
 
-    if (result.error) {
-      return res.status(result.error.status).json({
-        message: result.error.message,
-      });
-    }
-
-    res.status(201).json({
+    return res.status(201).json({
       order: result.order,
       pricing: result.pricing,
     });
@@ -489,8 +553,8 @@ router.post('/', async (req, res, next) => {
 
 // =====================================================
 // POST /api/orders/quote
-// Preview order pricing before creating the order.
 // =====================================================
+
 router.post('/quote', async (req, res, next) => {
   try {
     const {
@@ -511,34 +575,22 @@ router.post('/quote', async (req, res, next) => {
       });
     }
 
-    const weight = Number(weightKg);
-
-    if (
-      weightKg === null ||
-      weightKg === undefined ||
-      weightKg === '' ||
-      !Number.isFinite(weight) ||
-      weight < 1 ||
-      weight > 15
-    ) {
+    if (!validWeight(weightKg)) {
       return res.status(400).json({
         message: 'Weight must be between 1 and 15 kg',
       });
     }
 
-    const customer = await Customer.findById(
-      customerId
-    );
+    const [customer, service] = await Promise.all([
+      Customer.findById(customerId),
+      Service.findById(serviceId),
+    ]);
 
     if (!customer) {
       return res.status(404).json({
         message: 'Customer not found',
       });
     }
-
-    const service = await Service.findById(
-      serviceId
-    );
 
     if (!service) {
       return res.status(404).json({
@@ -552,6 +604,8 @@ router.post('/quote', async (req, res, next) => {
       });
     }
 
+    const weight = Number(weightKg);
+
     const pricing = await calculateOrderPrice(
       customerId,
       service,
@@ -563,7 +617,7 @@ router.post('/quote', async (req, res, next) => {
         service.turnaroundHours * 60 * 60 * 1000
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       customer: {
         id: customer._id,
         fullName: customer.fullName,
@@ -585,8 +639,46 @@ router.post('/quote', async (req, res, next) => {
 });
 
 // =====================================================
+// GET /api/orders/queue
+// Priority scheduling display.
+// Does not automatically start machines.
+// =====================================================
+
+router.get('/queue', async (req, res, next) => {
+  try {
+    const orders = await populateOrder(
+      Order.find({ status: 'received' })
+        .sort({ createdAt: 1 })
+    );
+
+    orders.sort((a, b) => {
+      const priorityA = getPriority(
+        a.service?.name
+      );
+      const priorityB = getPriority(
+        b.service?.name
+      );
+
+      if (priorityA !== priorityB) {
+        return priorityB - priorityA;
+      }
+
+      return (
+        new Date(a.createdAt).getTime() -
+        new Date(b.createdAt).getTime()
+      );
+    });
+
+    return res.status(200).json(orders);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =====================================================
 // GET /api/orders/overdue
 // =====================================================
+
 router.get('/overdue', async (req, res, next) => {
   try {
     const orders = await populateOrder(
@@ -597,7 +689,7 @@ router.get('/overdue', async (req, res, next) => {
       }).sort({ dueDate: 1 })
     );
 
-    res.status(200).json(orders);
+    return res.status(200).json(orders);
   } catch (error) {
     next(error);
   }
@@ -606,6 +698,7 @@ router.get('/overdue', async (req, res, next) => {
 // =====================================================
 // GET /api/orders/search
 // =====================================================
+
 router.get('/search', async (req, res, next) => {
   try {
     const {
@@ -620,7 +713,10 @@ router.get('/search', async (req, res, next) => {
     const filter = {};
 
     if (status) {
-      if (!ORDER_STATUSES.includes(status)) {
+      if (
+        typeof status !== 'string' ||
+        !ORDER_STATUSES.includes(status)
+      ) {
         return res.status(400).json({
           message: 'Invalid order status',
         });
@@ -686,8 +782,7 @@ router.get('/search', async (req, res, next) => {
       if (
         filter.createdAt.$gte &&
         filter.createdAt.$lte &&
-        filter.createdAt.$gte >
-          filter.createdAt.$lte
+        filter.createdAt.$gte > filter.createdAt.$lte
       ) {
         return res.status(400).json({
           message:
@@ -717,7 +812,7 @@ router.get('/search', async (req, res, next) => {
       )
     );
 
-    res.status(200).json(orders);
+    return res.status(200).json(orders);
   } catch (error) {
     next(error);
   }
@@ -726,6 +821,7 @@ router.get('/search', async (req, res, next) => {
 // =====================================================
 // GET /api/orders/:id/balance
 // =====================================================
+
 router.get('/:id/balance', async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -771,7 +867,7 @@ router.get('/:id/balance', async (req, res, next) => {
       paymentStatus = 'partial';
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       orderId: order._id,
       totalPrice: toPesos(totalPriceCentavos),
       totalPaid: toPesos(totalPaidCentavos),
@@ -786,12 +882,27 @@ router.get('/:id/balance', async (req, res, next) => {
 
 // =====================================================
 // PATCH /api/orders/:id/status
+//
+// received -> washing  (select washer)
+// washing  -> drying   (select dryer)
+// drying   -> folding
+// folding  -> ready
+// ready    -> claimed  (must be fully paid)
+//
+// received -> cancelled (no payments)
+//
+// Expected examples:
+//
+// { "status": "washing", "washer": "ID" }
+// { "status": "drying", "dryer": "ID" }
+// { "status": "folding" }
+// { "status": "ready" }
+// { "status": "claimed" }
 // =====================================================
 
 router.patch('/:id/status', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status, machine: machineId } = req.body;
 
     if (!isValidId(id)) {
       return res.status(400).json({
@@ -799,61 +910,39 @@ router.patch('/:id/status', async (req, res, next) => {
       });
     }
 
+    const {
+      status,
+      washer,
+      dryer,
+      machine,
+    } = req.body;
+
     if (!ORDER_STATUSES.includes(status)) {
       return res.status(400).json({
         message: 'Invalid order status',
       });
     }
 
-    const transitions = {
-      received: ['washing', 'cancelled'],
-      washing: ['ready'],
-      ready: ['claimed'],
-      claimed: [],
-      cancelled: [],
-    };
+    const session = await mongoose.startSession();
 
-    // CANCEL ORDER
-    // Cancellation and payment operations use
-    // transactions that write-lock the same order.
-    if (status === 'cancelled') {
-      const session = await mongoose.startSession();
+    let updatedOrderId;
 
-      let cancelledOrderId;
+    try {
+      await session.withTransaction(async () => {
+        const order = await lockOrder(id, session);
 
-      try {
-        await session.withTransaction(async () => {
-          const lockResult =
-            await Order.collection.updateOne(
-              {
-                _id: new mongoose.Types.ObjectId(id),
-              },
-              {
-                $currentDate: {
-                  updatedAt: true,
-                },
-              },
-              { session }
-            );
+        if (!TRANSITIONS[order.status].includes(status)) {
+          throw httpError(
+            409,
+            `Cannot change order status from ${order.status} to ${status}`
+          );
+        }
 
-          if (lockResult.matchedCount === 0) {
-            throw httpError(404, 'Order not found');
-          }
+        // ==========================================
+        // CANCEL
+        // ==========================================
 
-          const order = await Order.findById(id)
-            .session(session);
-
-          if (
-            !transitions[order.status].includes(
-              'cancelled'
-            )
-          ) {
-            throw httpError(
-              409,
-              `Cannot change order status from ${order.status} to cancelled`
-            );
-          }
-
+        if (status === 'cancelled') {
           const existingPayment = await Payment.exists({
             order: order._id,
           }).session(session);
@@ -866,62 +955,131 @@ router.patch('/:id/status', async (req, res, next) => {
           }
 
           order.status = 'cancelled';
+        }
 
-          await order.save({ session });
+        // ==========================================
+        // START WASHING
+        // ==========================================
 
-          cancelledOrderId = order._id;
-        });
-      } finally {
-        await session.endSession();
-      }
+        if (status === 'washing') {
+          const selectedWasher = washer || machine;
 
-      const updatedOrder = await populateOrder(
-        Order.findById(cancelledOrderId)
-      );
+          await validateAndReserveMachine({
+            machineId: selectedWasher,
+            expectedType: 'washer',
+            weightKg: order.weightKg,
+            orderId: order._id,
+            session,
+          });
 
-      return res.status(200).json(updatedOrder);
-    }
-
-    // CLAIM ORDER
-    // Must be Ready and fully paid.
-    if (status === 'claimed') {
-      const session = await mongoose.startSession();
-
-      let claimedOrderId;
-
-      try {
-        await session.withTransaction(async () => {
-          const lockResult =
-            await Order.collection.updateOne(
-              {
-                _id: new mongoose.Types.ObjectId(id),
-              },
-              {
-                $currentDate: {
-                  updatedAt: true,
-                },
-              },
-              { session }
-            );
-
-          if (lockResult.matchedCount === 0) {
-            throw httpError(404, 'Order not found');
-          }
-
-          const order = await Order.findById(id)
+          // Queue rule:
+          // Higher priority waiting orders go first.
+          // Equal priority uses oldest order first.
+          const waitingOrders = await Order.find({
+            status: 'received',
+          })
+            .populate('service', 'name')
+            .sort({ createdAt: 1 })
             .session(session);
 
-          if (
-            !transitions[order.status].includes(
-              'claimed'
-            )
-          ) {
+          const currentService = await Service.findById(
+            order.service
+          ).session(session);
+
+          const currentPriority = getPriority(
+            currentService?.name
+          );
+
+          const higherPriorityWaiting =
+            waitingOrders.find((waitingOrder) => {
+              if (
+                waitingOrder._id.toString() ===
+                order._id.toString()
+              ) {
+                return false;
+              }
+
+              const waitingPriority = getPriority(
+                waitingOrder.service?.name
+              );
+
+              if (waitingPriority > currentPriority) {
+                return true;
+              }
+
+              return (
+                waitingPriority === currentPriority &&
+                (
+                  new Date(waitingOrder.createdAt).getTime() <
+                    new Date(order.createdAt).getTime() ||
+                  (
+                    new Date(waitingOrder.createdAt).getTime() ===
+                      new Date(order.createdAt).getTime() &&
+                    waitingOrder._id.toString() <
+                      order._id.toString()
+                  )
+                )
+              );
+            });
+
+          if (higherPriorityWaiting) {
             throw httpError(
               409,
-              `Cannot change order status from ${order.status} to claimed`
+              'A higher-priority or earlier laundry order is waiting. Process it first.'
             );
           }
 
+          order.washer = selectedWasher;
+          order.machine = selectedWasher;
+          order.washingStartedAt = new Date();
+          order.status = 'washing';
+        }
+
+        // ==========================================
+        // START DRYING
+        // ==========================================
+
+        if (status === 'drying') {
+          await validateAndReserveMachine({
+            machineId: dryer,
+            expectedType: 'dryer',
+            weightKg: order.weightKg,
+            orderId: order._id,
+            session,
+          });
+
+          // The washer is no longer busy once
+          // order status changes to drying.
+          order.dryer = dryer;
+          order.dryingStartedAt = new Date();
+          order.status = 'drying';
+        }
+
+        // ==========================================
+        // START FOLDING
+        // ==========================================
+
+        if (status === 'folding') {
+          // The dryer is released automatically
+          // when status changes to folding.
+          order.foldingStartedAt = new Date();
+          order.status = 'folding';
+        }
+
+        // ==========================================
+        // READY FOR PICKUP
+        // ==========================================
+
+        if (status === 'ready') {
+          order.readyAt = new Date();
+          order.status = 'ready';
+        }
+
+        // ==========================================
+        // CLAIM ORDER
+        // ==========================================
+
+        if (status === 'claimed') {
           const payments = await Payment.find({
             order: order._id,
           }).session(session);
@@ -963,79 +1121,27 @@ router.patch('/:id/status', async (req, res, next) => {
 
           order.status = 'claimed';
           order.claimedAt = new Date();
-
-          await order.save({ session });
-
-          claimedOrderId = order._id;
-        });
-      } catch (error) {
-        if (
-          error.status === 409 &&
-          error.details
-        ) {
-          return res.status(409).json({
-            message: error.message,
-            ...error.details,
-          });
         }
 
-        throw error;
-      } finally {
-        await session.endSession();
+        await order.save({ session });
+
+        updatedOrderId = order._id;
+      });
+    } catch (error) {
+      if (error.status === 409 && error.details) {
+        return res.status(409).json({
+          message: error.message,
+          ...error.details,
+        });
       }
 
-      const updatedOrder = await populateOrder(
-        Order.findById(claimedOrderId)
-      );
-
-      return res.status(200).json(updatedOrder);
+      throw error;
+    } finally {
+      await session.endSession();
     }
-
-    // OTHER STATUS TRANSITIONS
-    const order = await Order.findById(id);
-
-    if (!order) {
-      return res.status(404).json({
-        message: 'Order not found',
-      });
-    }
-
-    if (
-      !transitions[order.status].includes(status)
-    ) {
-      return res.status(409).json({
-        message:
-          `Cannot change order status from ${order.status} to ${status}`,
-      });
-    }
-
-    if (status === 'washing') {
-      const selectedMachineId =
-        machineId || order.machine;
-
-      const machineResult = await validateMachine(
-        selectedMachineId,
-        order.weightKg,
-        order._id
-      );
-
-      if (machineResult.error) {
-        return res
-          .status(machineResult.error.status)
-          .json({
-            message: machineResult.error.message,
-          });
-      }
-
-      order.machine = selectedMachineId;
-    }
-
-    order.status = status;
-
-    await order.save();
 
     const updatedOrder = await populateOrder(
-      Order.findById(order._id)
+      Order.findById(updatedOrderId)
     );
 
     return res.status(200).json(updatedOrder);
@@ -1047,6 +1153,7 @@ router.patch('/:id/status', async (req, res, next) => {
 // =====================================================
 // GET /api/orders/:id
 // =====================================================
+
 router.get('/:id', async (req, res, next) => {
   try {
     if (!isValidId(req.params.id)) {
@@ -1065,7 +1172,7 @@ router.get('/:id', async (req, res, next) => {
       });
     }
 
-    res.status(200).json(order);
+    return res.status(200).json(order);
   } catch (error) {
     next(error);
   }
@@ -1073,8 +1180,9 @@ router.get('/:id', async (req, res, next) => {
 
 // =====================================================
 // PUT /api/orders/:id
-// Edit order notes.
+// Edit notes only.
 // =====================================================
+
 router.put('/:id', async (req, res, next) => {
   try {
     if (!isValidId(req.params.id)) {
@@ -1093,21 +1201,27 @@ router.put('/:id', async (req, res, next) => {
       });
     }
 
-    const { notes } = req.body;
-
-    if (notes !== undefined) {
-      if (typeof notes !== 'string') {
-        return res.status(400).json({
-          message: 'Notes must be a string',
-        });
-      }
-
-      order.notes = notes;
+    if (
+      Object.keys(req.body).some(
+        (key) => key !== 'notes'
+      )
+    ) {
+      return res.status(400).json({
+        message: 'Only order notes can be edited',
+      });
     }
+
+    if (req.body.notes === undefined) {
+      return res.status(400).json({
+        message: 'Please provide notes to update',
+      });
+    }
+
+    order.notes = validateNotes(req.body.notes);
 
     await order.save();
 
-    res.status(200).json(order);
+    return res.status(200).json(order);
   } catch (error) {
     next(error);
   }
@@ -1115,51 +1229,60 @@ router.put('/:id', async (req, res, next) => {
 
 // =====================================================
 // DELETE /api/orders/:id
-// Protect financial and operational history.
+//
+// Only received or cancelled orders without
+// payments may be deleted.
+//
+// Uses the same order lock as payment operations.
 // =====================================================
+
 router.delete('/:id', async (req, res, next) => {
   try {
-    if (!isValidId(req.params.id)) {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
       return res.status(400).json({
         message: 'Invalid order ID',
       });
     }
 
-    const order = await Order.findById(
-      req.params.id
-    );
+    const session = await mongoose.startSession();
 
-    if (!order) {
-      return res.status(404).json({
-        message: 'Order not found',
+    try {
+      await session.withTransaction(async () => {
+        const order = await lockOrder(id, session);
+
+        if (
+          !['received', 'cancelled'].includes(
+            order.status
+          )
+        ) {
+          throw httpError(
+            409,
+            'Only received or cancelled orders can be deleted'
+          );
+        }
+
+        const paymentExists = await Payment.exists({
+          order: order._id,
+        }).session(session);
+
+        if (paymentExists) {
+          throw httpError(
+            409,
+            'Cannot delete an order with recorded payments'
+          );
+        }
+
+        await Order.findByIdAndDelete(
+          order._id
+        ).session(session);
       });
+    } finally {
+      await session.endSession();
     }
 
-    if (
-      ['washing', 'ready', 'claimed'].includes(
-        order.status
-      )
-    ) {
-      return res.status(409).json({
-        message:
-          'Cannot delete an order that is washing, ready, or claimed',
-      });
-    }
-
-    const paymentExists = await Payment.exists({
-      order: order._id,
-    });
-
-    if (paymentExists) {
-      return res.status(409).json({
-        message:
-          'Cannot delete an order that has payment records',
-      });
-    }
-
-    await Order.findByIdAndDelete(order._id);
-
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Order deleted successfully',
     });
   } catch (error) {

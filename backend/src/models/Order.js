@@ -7,6 +7,10 @@ const hasAtMostTwoDecimals = (value) =>
 
 const orderSchema = new mongoose.Schema(
   {
+    // ==========================================
+    // CUSTOMER AND SERVICE
+    // ==========================================
+
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Customer',
@@ -19,11 +23,33 @@ const orderSchema = new mongoose.Schema(
       required: [true, 'Service is required'],
     },
 
+    // ==========================================
+    // MACHINE ASSIGNMENTS
+    // ==========================================
+
+    // Legacy field retained for compatibility.
+    // The new workflow uses washer and dryer.
     machine: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Machine',
       default: null,
     },
+
+    washer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Machine',
+      default: null,
+    },
+
+    dryer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Machine',
+      default: null,
+    },
+
+    // ==========================================
+    // LAUNDRY DETAILS
+    // ==========================================
 
     weightKg: {
       type: Number,
@@ -31,6 +57,16 @@ const orderSchema = new mongoose.Schema(
       min: [1, 'Weight must be at least 1 kg'],
       max: [15, 'Weight cannot exceed 15 kg'],
     },
+
+    notes: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+
+    // ==========================================
+    // PRICING
+    // ==========================================
 
     discountPercent: {
       type: Number,
@@ -45,9 +81,14 @@ const orderSchema = new mongoose.Schema(
       min: [0, 'Total price cannot be negative'],
       validate: {
         validator: hasAtMostTwoDecimals,
-        message: 'Total price must have at most 2 decimal places',
+        message:
+          'Total price must have at most 2 decimal places',
       },
     },
+
+    // ==========================================
+    // ORDER WORKFLOW
+    // ==========================================
 
     status: {
       type: String,
@@ -55,14 +96,39 @@ const orderSchema = new mongoose.Schema(
         values: [
           'received',
           'washing',
+          'drying',
+          'folding',
           'ready',
           'claimed',
           'cancelled',
         ],
-        message:
-          'Status must be received, washing, ready, claimed, or cancelled',
+        message: 'Invalid laundry order status',
       },
       default: 'received',
+    },
+
+    // ==========================================
+    // WORKFLOW TIMESTAMPS
+    // ==========================================
+
+    washingStartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    dryingStartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    foldingStartedAt: {
+      type: Date,
+      default: null,
+    },
+
+    readyAt: {
+      type: Date,
+      default: null,
     },
 
     dueDate: {
@@ -74,16 +140,16 @@ const orderSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-
-    notes: {
-      type: String,
-      trim: true,
-      default: '',
-    },
   },
   {
     timestamps: true,
   }
 );
+
+// Used for sorting orders by service and due date.
+orderSchema.index({
+  status: 1,
+  dueDate: 1,
+});
 
 module.exports = mongoose.model('Order', orderSchema);
