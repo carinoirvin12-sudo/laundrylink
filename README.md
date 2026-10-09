@@ -745,4 +745,21 @@ Before final submission, complete the group information, add actual screenshots,
 
 ---
 
+## Glossary
+
+* **POS (Point of Sale):** The interface used to create laundry orders and process customer transactions.
+* **Order:** A record representing laundry accepted for processing.
+* **Turnaround Time:** The expected time required to complete a laundry service.
+* **Priority Queue:** An ordered list of waiting laundry orders based on service priority and arrival order.
+* **Machine Availability:** The calculated availability of washers and dryers based on their status and current assignments.
+* **Partial Payment:** A payment that covers only part of the total order price.
+* **Remaining Balance:** The unpaid amount after subtracting recorded payments from the order total.
+* **Bulk Discount:** A price reduction for orders meeting the configured minimum weight.
+* **Loyalty Discount:** A price reduction for eligible returning customers.
+* **Overdue Order:** An order that has passed its expected due date without reaching the required completion or pickup stage.
+* **REST API:** An interface that allows the frontend and backend to exchange data over HTTP.
+* **MongoDB Atlas:** The cloud-hosted database service used to store application records.
+
+
+
 **LaundryLink — Simple. Organized. Connected.**
