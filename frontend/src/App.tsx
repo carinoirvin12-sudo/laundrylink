@@ -1,3 +1,4 @@
+
 import {
   BrowserRouter,
   Navigate,
@@ -6,7 +7,7 @@ import {
 } from 'react-router-dom'
 
 import AppLayout from './layouts/AppLayout'
-
+import Landing from './pages/Landing/Landing'
 import Dashboard from './pages/Dashboard/Dashboard'
 import Orders from './pages/Orders/Orders'
 import NewOrder from './pages/NewOrder/NewOrder'
@@ -22,18 +23,19 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* PUBLIC LANDING PAGE */}
         <Route
           path="/"
-          element={<Navigate to="/dashboard" replace />}
+          element={<Landing />}
         />
 
+        {/* MANAGEMENT SYSTEM PAGES */}
         <Route element={<AppLayout />}>
           <Route
             path="/dashboard"
             element={<Dashboard />}
           />
 
-          {/* IMPORTANT: NEW must be before :id */}
           <Route
             path="/orders"
             element={<Orders />}
@@ -80,9 +82,10 @@ function App() {
           />
         </Route>
 
+        {/* UNKNOWN ROUTES */}
         <Route
           path="*"
-          element={<Navigate to="/dashboard" replace />}
+          element={<Navigate to="/" replace />}
         />
       </Routes>
     </BrowserRouter>

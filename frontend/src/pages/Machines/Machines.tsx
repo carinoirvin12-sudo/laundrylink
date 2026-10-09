@@ -516,25 +516,27 @@ function Machines() {
 
       {/* WORKFLOW EXPLANATION */}
 
-      <section className="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-5">
-        <h2 className="font-bold text-slate-900">
-          Washer-to-Dryer Workflow
-        </h2>
 
-        <p className="mt-2 text-sm leading-6 text-slate-700">
-          Laundry orders start in the Received queue.
-          An assigned washer becomes In Use during
-          Washing. When Drying starts, the washer
-          becomes Available and the assigned dryer
-          becomes In Use. The dryer becomes Available
-          when Folding starts.
-        </p>
+<section className="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-5 dark:border-cyan-800 dark:bg-slate-800">
+  <h2 className="font-bold text-slate-900 dark:text-white">
+    Washer-to-Dryer Workflow
+  </h2>
 
-        <p className="mt-2 text-xs font-medium text-cyan-800">
-          Machine availability is calculated from
-          current order statuses, not set manually.
-        </p>
-      </section>
+  <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">
+    Laundry orders start in the Received queue.
+    An assigned washer becomes In Use during
+    Washing. When Drying starts, the washer
+    becomes Available and the assigned dryer
+    becomes In Use. The dryer becomes Available
+    when Folding starts.
+  </p>
+
+  <p className="mt-2 text-xs font-medium text-cyan-800 dark:text-cyan-300">
+    Machine availability is calculated from
+    current order statuses, not set manually.
+  </p>
+</section>
+
 
       {/* SUMMARY */}
 

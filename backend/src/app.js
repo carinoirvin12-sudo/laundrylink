@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 
@@ -13,10 +14,11 @@ const app = express();
 // =====================================================
 // GLOBAL MIDDLEWARE
 // =====================================================
+
 app.use(cors());
 app.use(express.json());
 
-// Simple request logger
+// Custom request logger
 app.use((req, res, next) => {
   console.log(
     `${new Date().toISOString()} ${req.method} ${req.originalUrl}`
@@ -28,6 +30,7 @@ app.use((req, res, next) => {
 // =====================================================
 // ROOT
 // =====================================================
+
 app.get('/', (req, res) => {
   res.status(200).json({
     message: 'LaundryLink API is running',
@@ -37,6 +40,7 @@ app.get('/', (req, res) => {
 // =====================================================
 // API ROUTES
 // =====================================================
+
 app.use('/api/customers', customerRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/machines', machineRoutes);
@@ -47,6 +51,7 @@ app.use('/api/stats', statsRoutes);
 // =====================================================
 // JSON 404 HANDLER
 // =====================================================
+
 app.use((req, res) => {
   res.status(404).json({
     message: 'Route not found',
@@ -56,15 +61,19 @@ app.use((req, res) => {
 // =====================================================
 // GLOBAL ERROR HANDLER
 // =====================================================
+
 app.use((error, req, res, next) => {
-  console.error(error);
+  // Log complete details on the server for debugging.
+  console.error(
+    `[${new Date().toISOString()}]`,
+    error
+  );
 
   // MongoDB duplicate key error
   if (error.code === 11000) {
     const field =
-      Object.keys(
-        error.keyPattern || {}
-      )[0] || 'field';
+      Object.keys(error.keyPattern || {})[0] ||
+      'field';
 
     return res.status(409).json({
       message: `${field} already exists`,
@@ -74,13 +83,12 @@ app.use((error, req, res, next) => {
   // Mongoose validation error
   if (error.name === 'ValidationError') {
     const messages = Object.values(
-      error.errors
+      error.errors || {}
     ).map((item) => item.message);
 
     return res.status(400).json({
       message:
-        messages[0] ||
-        'Validation failed',
+        messages[0] || 'Validation failed',
     });
   }
 
@@ -91,12 +99,20 @@ app.use((error, req, res, next) => {
     });
   }
 
-  res.status(
-    error.status || 500
-  ).json({
+  // Only use valid HTTP error status codes.
+  const statusCode =
+    Number.isInteger(error.status) &&
+    error.status >= 400 &&
+    error.status <= 599
+      ? error.status
+      : 500;
+
+  // Hide internal error details from API consumers.
+  return res.status(statusCode).json({
     message:
-      error.message ||
-      'Internal server error',
+      statusCode >= 500
+        ? 'Internal server error'
+        : error.message || 'Request failed',
   });
 });
 

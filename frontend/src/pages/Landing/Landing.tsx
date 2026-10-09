@@ -1,9 +1,11 @@
+
 import { Link } from 'react-router-dom'
 
 function Landing() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+      {/* HEADER */}
+      <nav className="mx-auto flex max-w-7xl items-center px-6 py-6">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-400 text-xl font-black text-slate-950">
             L
@@ -18,18 +20,13 @@ function Landing() {
             </p>
           </div>
         </div>
-
-        <Link
-          to="/dashboard"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold transition hover:bg-slate-800"
-        >
-          Open Dashboard
-        </Link>
       </nav>
 
+      {/* MAIN CONTENT */}
       <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-20 lg:grid-cols-2 lg:py-28">
+        {/* HERO TEXT */}
         <div>
-          <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-300">
+          <span className="inline-block rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-300">
             Simple. Organized. Connected.
           </span>
 
@@ -46,23 +43,21 @@ function Landing() {
             from one organized system.
           </p>
 
-          <div className="mt-9 flex flex-wrap gap-4">
+          {/* SINGLE DASHBOARD BUTTON */}
+          <div className="mt-9">
             <Link
               to="/dashboard"
-              className="rounded-xl bg-cyan-400 px-6 py-3 font-bold text-slate-950 transition hover:bg-cyan-300"
+              className="inline-flex items-center justify-center rounded-xl bg-cyan-400 px-7 py-3.5 font-bold text-slate-950 transition hover:bg-cyan-300"
             >
               Go to Dashboard
-            </Link>
-
-            <Link
-              to="/orders/new"
-              className="rounded-xl border border-slate-700 px-6 py-3 font-semibold transition hover:bg-slate-800"
-            >
-              Create Order
+              <span className="ml-3" aria-hidden="true">
+                →
+              </span>
             </Link>
           </div>
         </div>
 
+        {/* FEATURE CARDS */}
         <div className="grid gap-4 sm:grid-cols-2">
           {[
             ['Orders', 'Track every laundry order'],

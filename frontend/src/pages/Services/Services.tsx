@@ -430,10 +430,9 @@ function Services() {
       await refresh()
 
       setSuccess(
-        `Service ${
-          service.isActive
-            ? 'deactivated'
-            : 'reactivated'
+        `Service ${service.isActive
+          ? 'deactivated'
+          : 'reactivated'
         } successfully.`
       )
     } catch (err) {
@@ -459,8 +458,8 @@ function Services() {
 
     const confirmed = window.confirm(
       `Remove "${service.name}"?\n\n` +
-        'Unused services will be deleted. ' +
-        'Services with order history will be deactivated instead.'
+      'Unused services will be deleted. ' +
+      'Services with order history will be deactivated instead.'
     )
 
     if (!confirmed) return
@@ -479,11 +478,11 @@ function Services() {
 
       setSuccess(
         response.data.message ||
-          (
-            response.data.archived
-              ? 'Service deactivated to preserve order history.'
-              : 'Service deleted successfully.'
-          )
+        (
+          response.data.archived
+            ? 'Service deactivated to preserve order history.'
+            : 'Service deleted successfully.'
+        )
       )
     } catch (err) {
       setError(
@@ -517,8 +516,8 @@ function Services() {
     const filtered = showInactive
       ? services
       : services.filter(
-          (service) => service.isActive
-        )
+        (service) => service.isActive
+      )
 
     const priorityOrder: Record<
       string,
@@ -605,29 +604,24 @@ function Services() {
 
       {/* SERVICE INFORMATION */}
 
-      <section className="mt-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-5">
-        <h2 className="font-bold text-slate-900">
+      <section className="mt-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-5 dark:border-slate-700 dark:bg-slate-800/80">
+        <h2 className="font-bold text-slate-900 dark:text-slate-100">
           Full-Service Laundry Packages
         </h2>
 
-        <p className="mt-2 text-sm leading-6 text-slate-700">
-          All packages include Wash + Dry +
-          Fold. They differ in pricing,
-          turnaround time, and priority
-          while waiting for an available
+        <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-300">
+          All packages include Wash + Dry + Fold. They differ in pricing,
+          turnaround time, and priority while waiting for an available
           machine.
         </p>
 
-        <p className="mt-2 text-xs font-medium text-cyan-800">
-          Express orders have the highest
-          priority, followed by Priority
-          and Standard. Running machine
-          cycles are never interrupted.
+        <p className="mt-2 text-xs font-medium text-cyan-800 dark:text-cyan-300">
+          Express orders have the highest priority, followed by Priority
+          and Standard. Running machine cycles are never interrupted.
         </p>
 
-        <p className="mt-2 text-xs text-slate-500">
-          The prices below are suggested
-          demo configurations. They are
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          The prices below are suggested demo configurations. They are
           saved only when you add a service.
         </p>
       </section>
@@ -983,11 +977,10 @@ function Services() {
                   </h2>
 
                   <span
-                    className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${
-                      service.isActive
+                    className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${service.isActive
                         ? 'bg-green-100 text-green-700'
                         : 'bg-slate-100 text-slate-600'
-                    }`}
+                      }`}
                   >
                     {service.isActive
                       ? 'Active'
