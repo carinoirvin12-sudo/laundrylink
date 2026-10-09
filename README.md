@@ -763,3 +763,6 @@ Before final submission, complete the group information, add actual screenshots,
 
 
 **LaundryLink — Simple. Organized. Connected.**
+
+
+edit ni paul para sa commit
