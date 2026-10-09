@@ -764,5 +764,6 @@ Before final submission, complete the group information, add actual screenshots,
 
 **LaundryLink — Simple. Organized. Connected.**
 
+<!-- Documentation-only note: this comment does not affect application behavior. -->
 
-edit ni paul para sa commit nyawk nyawk nyawk 
+edit ni paul para sa commit nyawk nyawk nyawk  
