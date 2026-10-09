@@ -1,4 +1,9 @@
+
 const mongoose = require('mongoose');
+
+const hasAtMostTwoDecimals = (value) =>
+  Number.isFinite(value) &&
+  Math.abs(value * 100 - Math.round(value * 100)) < 0.000001;
 
 const orderSchema = new mongoose.Schema(
   {
@@ -20,14 +25,12 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
- 
-weightKg: {
-  type: Number,
-  required: [true, 'Weight is required'],
-  min: [1, 'Weight must be at least 1 kg'],
-  max: [15, 'Weight cannot exceed 15 kg'],
-},
-
+    weightKg: {
+      type: Number,
+      required: [true, 'Weight is required'],
+      min: [1, 'Weight must be at least 1 kg'],
+      max: [15, 'Weight cannot exceed 15 kg'],
+    },
 
     discountPercent: {
       type: Number,
@@ -40,12 +43,22 @@ weightKg: {
       type: Number,
       required: [true, 'Total price is required'],
       min: [0, 'Total price cannot be negative'],
+      validate: {
+        validator: hasAtMostTwoDecimals,
+        message: 'Total price must have at most 2 decimal places',
+      },
     },
 
     status: {
       type: String,
       enum: {
-        values: ['received', 'washing', 'ready', 'claimed', 'cancelled'],
+        values: [
+          'received',
+          'washing',
+          'ready',
+          'claimed',
+          'cancelled',
+        ],
         message:
           'Status must be received, washing, ready, claimed, or cancelled',
       },

@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 
 const machineSchema = new mongoose.Schema(
@@ -7,6 +8,8 @@ const machineSchema = new mongoose.Schema(
       required: [true, 'Machine name is required'],
       unique: true,
       trim: true,
+      minlength: [2, 'Machine name must be at least 2 characters'],
+      maxlength: [100, 'Machine name cannot exceed 100 characters'],
     },
 
     type: {
@@ -18,14 +21,12 @@ const machineSchema = new mongoose.Schema(
       },
     },
 
-
-capacityKg: {
-  type: Number,
-  required: [true, 'Machine capacity is required'],
-  min: [1, 'Machine capacity must be at least 1 kg'],
-  max: [15, 'Machine capacity cannot exceed 15 kg'],
-},
-
+    capacityKg: {
+      type: Number,
+      required: [true, 'Machine capacity is required'],
+      min: [1, 'Machine capacity must be at least 1 kg'],
+      max: [15, 'Machine capacity cannot exceed 15 kg'],
+    },
 
     status: {
       type: String,
