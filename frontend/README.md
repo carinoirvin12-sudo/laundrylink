@@ -1,34 +1,71 @@
-# React + TypeScript + Vite
+# LaundryLink — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript client for the LaundryLink laundry management system. For the project overview, business rules, and full API documentation, see the [main README](../README.md).
 
-Currently, two official plugins are available:
+## Tech
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React (Vite) with TypeScript
+- Tailwind CSS (custom theme, light and dark mode)
+- React Router
+- Axios (one shared instance in `src/services/api.ts`)
+- React Hook Form with Zod and `@hookform/resolvers`
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+cd frontend
+npm install
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Create a `.env` file (copy `.env.example`):
 
+```
+VITE_API_BASE_URL=http://localhost:5000/api
+```
 
+Start the dev server:
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:5173` (or the URL Vite prints). The backend must be running. Restart the dev server after editing `.env`.
+
+## Scripts
+
+| Command           | Purpose                                  |
+| ----------------- | ---------------------------------------- |
+| `npm run dev`     | Start the Vite dev server                |
+| `npm run build`   | Type-check and create a production build |
+| `npm run preview` | Preview the production build locally     |
+| `npm run lint`    | Run Oxlint                               |
+
+## Structure
+
+```
+src/
+├── components/   # ThemeProvider, ThemeToggle
+├── hooks/        # useDebounce
+├── layouts/      # AppLayout (shared navigation)
+├── pages/        # One folder per page
+├── schemas/      # Zod schemas
+├── services/     # api.ts (configured Axios instance)
+├── App.tsx       # Routes
+└── main.tsx      # Entry point
+```
+
+## Pages
+
+| Page             | Route            |
+| ---------------- | ---------------- |
+| Landing          | `/`              |
+| Dashboard        | `/dashboard`     |
+| Orders           | `/orders`        |
+| New Order        | `/orders/new`    |
+| Order Details    | `/orders/:id`    |
+| Customers        | `/customers`     |
+| Customer Details | `/customers/:id` |
+| Machines         | `/machines`      |
+| Services         | `/services`      |
+| Overdue Pickups  | `/overdue`       |
+| Reports          | `/reports`       |
