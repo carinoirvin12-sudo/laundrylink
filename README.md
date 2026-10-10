@@ -733,6 +733,25 @@ The repository contains the frontend and backend applications.
 
 Sensitive `.env` files, installed dependencies, generated builds, and local database backups must not be committed.
 
+### Committing and Pushing Changes
+
+Before publishing your work, update your local branch and review the files you changed:
+
+```bash
+git status
+git pull --rebase origin main
+```
+
+Stage only the files you intend to include, then create and push your commit:
+
+```bash
+git add README.md
+git commit -m "docs: update README"
+git push origin main
+```
+
+If Git reports conflicts during the rebase, resolve them before continuing. Review `git status` before staging so unrelated files are not included in your commit.
+
 The final submission must follow the instructor's repository access and Microsoft Teams submission instructions.
 
 ## 19. Project Status
@@ -745,4 +764,27 @@ Before final submission, complete the group information, add actual screenshots,
 
 ---
 
+## Glossary
+
+* **POS (Point of Sale):** The interface used to create laundry orders and process customer transactions.
+* **Order:** A record representing laundry accepted for processing.
+* **Turnaround Time:** The expected time required to complete a laundry service.
+* **Priority Queue:** An ordered list of waiting laundry orders based on service priority and arrival order.
+* **Machine Availability:** The calculated availability of washers and dryers based on their status and current assignments.
+* **Partial Payment:** A payment that covers only part of the total order price.
+* **Remaining Balance:** The unpaid amount after subtracting recorded payments from the order total.
+* **Bulk Discount:** A price reduction for orders meeting the configured minimum weight.
+* **Loyalty Discount:** A price reduction for eligible returning customers.
+* **Overdue Order:** An order that has passed its expected due date without reaching the required completion or pickup stage.
+* **REST API:** An interface that allows the frontend and backend to exchange data over HTTP.
+* **MongoDB Atlas:** The cloud-hosted database service used to store application records.
+
+
+## 
+
+
+
+
 **LaundryLink — Simple. Organized. Connected.**
+
+<!-- Documentation-only note: this comment does not affect application behavior. -->
