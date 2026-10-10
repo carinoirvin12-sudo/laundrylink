@@ -1,4 +1,3 @@
-
 import {
   useCallback,
   useEffect,
@@ -11,6 +10,7 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import axios from 'axios'
 import api from '../../services/api'
+import Receipt from './Receipt'
 
 type OrderStatus =
   | 'received'
@@ -711,7 +711,17 @@ function OrderDetails() {
           </p>
         </div>
 
-        <StatusBadge status={order.status} />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Print Receipt
+          </button>
+
+          <StatusBadge status={order.status} />
+        </div>
       </div>
 
       {error && (
@@ -1416,6 +1426,15 @@ function OrderDetails() {
           )}
         </aside>
       </div>
+
+      {/* PRINTABLE RECEIPT (hidden on screen) */}
+
+      <Receipt
+        order={order}
+        payments={payments}
+        totalPaid={totalPaid}
+        balance={balance}
+      />
     </div>
   )
 }
