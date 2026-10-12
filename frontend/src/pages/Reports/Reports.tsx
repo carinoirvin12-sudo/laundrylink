@@ -136,6 +136,7 @@ function isSummaryData(value: unknown): value is Summary {
 }
 function Reports() {
   const [initialDates] = useState(getDefaultDates)
+  const today = getDateInputValue(new Date())
   const [from, setFrom] = useState(initialDates.from)
   const [to, setTo] = useState(initialDates.to)
   const [summary, setSummary] = useState<Summary | null>(null)
@@ -391,8 +392,12 @@ function Reports() {
                 id="report-from"
                 type="date"
                 value={from}
+                max={today}
                 onChange={(event) => {
-                  const selectedFrom = event.target.value
+                  const selectedFrom =
+                    event.target.value > today
+                      ? today
+                      : event.target.value
                   setFrom(selectedFrom)
                   if (selectedFrom && to && selectedFrom > to) {
                     setTo(selectedFrom)
@@ -412,8 +417,12 @@ function Reports() {
                 id="report-to"
                 type="date"
                 value={to}
+                max={today}
                 onChange={(event) => {
-                  const selectedTo = event.target.value
+                  const selectedTo =
+                    event.target.value > today
+                      ? today
+                      : event.target.value
                   setTo(selectedTo)
                   if (selectedTo && from && selectedTo < from) {
                     setFrom(selectedTo)
@@ -433,7 +442,7 @@ function Reports() {
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          If the dates cross, the other date adjusts to keep the range valid.
+          Future dates are unavailable. If the dates cross, the other date adjusts to keep the range valid.
         </p>
         <p className="mt-4 text-xs text-slate-500">
           Showing payments from {appliedRange.from} to{' '}
