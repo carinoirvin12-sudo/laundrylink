@@ -391,9 +391,13 @@ function Reports() {
                 id="report-from"
                 type="date"
                 value={from}
-                onChange={(event) =>
-                  setFrom(event.target.value)
-                }
+                onChange={(event) => {
+                  const selectedFrom = event.target.value
+                  setFrom(selectedFrom)
+                  if (selectedFrom && to && selectedFrom > to) {
+                    setTo(selectedFrom)
+                  }
+                }}
                 className="rounded-xl border border-slate-300 px-4 py-2.5"
               />
             </div>
@@ -408,9 +412,13 @@ function Reports() {
                 id="report-to"
                 type="date"
                 value={to}
-                onChange={(event) =>
-                  setTo(event.target.value)
-                }
+                onChange={(event) => {
+                  const selectedTo = event.target.value
+                  setTo(selectedTo)
+                  if (selectedTo && from && selectedTo < from) {
+                    setFrom(selectedTo)
+                  }
+                }}
                 className="rounded-xl border border-slate-300 px-4 py-2.5"
               />
             </div>
@@ -424,6 +432,9 @@ function Reports() {
             </button>
           </div>
         </div>
+        <p className="mt-3 text-xs text-slate-500">
+          If the dates cross, the other date adjusts to keep the range valid.
+        </p>
         <p className="mt-4 text-xs text-slate-500">
           Showing payments from {appliedRange.from} to{' '}
           {appliedRange.to}.
