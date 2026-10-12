@@ -48,12 +48,12 @@ It does more than store and display records. The application **computes and eval
 
 ## 2. Group Members
 
-| Member               | GitHub                                   | Main Contribution     |
-| -------------------- | ---------------------------------------- | --------------------- |
-| [Member 1 Full Name] | [@username](https://github.com/username) | [Actual contribution] |
-| [Member 2 Full Name] | [@username](https://github.com/username) | [Actual contribution] |
-| [Member 3 Full Name] | [@username](https://github.com/username) | [Actual contribution] |
-| [Member 4 Full Name] | [@username](https://github.com/username) | [Actual contribution] |
+| Member                    | GitHub                | Main Contribution                        |
+| ------------------------- | --------------------- | ---------------------------------------- |
+| IRVIN CARL T. CARIÑO      | [@carinoirvin12-sudo] | Base web setup and flow                  |
+| LLEYTON JOHN D. FERNANDEZ | [@dharmatown]         | Frontend design, web plan and            |
+| PAUL JOHN F. LUCBAN       | [@pauljohnlucban77]   | Web documentation, dashboard and reports |
+| TIFFANY AHYAN M. REYES    | [@tany903]            | Orders and customers                     |
 
 ## 3. Technology Stack
 
