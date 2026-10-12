@@ -48,7 +48,7 @@ src/
 ├── hooks/        # useDebounce
 ├── layouts/      # AppLayout (shared navigation)
 ├── pages/        # One folder per page
-├── schemas/      # Zod schemas
+├── schemas/      # Shared Zod schema (other schemas sit at the top of their page files)
 ├── services/     # api.ts (configured Axios instance)
 ├── App.tsx       # Routes
 └── main.tsx      # Entry point
